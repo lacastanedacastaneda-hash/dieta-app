@@ -49,3 +49,9 @@ label.extra input{width:22px;height:22px;accent-color:var(--orange)}
 .chart div.b.x{background:var(--orange)}.chart div.b.now{background:#8FC4AF}.chart div.b.e{height:2px;background:#B9B4A8;border-radius:0}
 .days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;text-align:center;font-size:12px;color:var(--mut);margin-top:6px}
 .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+[hidden]{display:none!important}
+.seg{display:flex;gap:4px;padding:4px;background:var(--track);border-radius:12px;margin:12px 0 0}
+.seg button{flex:1;min-height:44px;border:0;border-radius:9px;background:transparent;font:500 14px inherit;font-family:inherit;color:var(--mut);cursor:pointer}
+.seg button.on{background:#fff;color:var(--ink);font-weight:600}
+button.pick{width:100%;text-align:left;cursor:pointer;font-family:inherit;color:inherit}
+video{width:100%;border-radius:12px;margin-top:8px;background:#000}

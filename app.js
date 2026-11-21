@@ -1,9 +1,10 @@
 /* Mi comida — fase 1. Todo se guarda en el móvil (localStorage). */
 const KEY = 'dieta.v1';
 const DEF = {
-  settings: { target: 2150, p: 140, c: 220, f: 65, gymKcal: 350, gymDays: [1, 2, 3, 4], floor: 1500, apiKey: '', model: 'gemini-2.5-flash', startWeight: 100, goalWeight: 85 },
+  settings: { target: 2150, p: 140, c: 220, f: 65, gymKcal: 350, gymDays: [1, 2, 3, 4], floor: 1500, apiKey: '', model: 'gemini-flash-latest', startWeight: 100, goalWeight: 85 },
   days: {},
   weights: {},
+  products: {},
 };
 let db = load();
 let view = 'hoy';
@@ -168,73 +169,212 @@ function exportData() {
 }
 
 /* ---------- Añadir ---------- */
+const r1 = (n) => Math.round(n * 10) / 10;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let mode = 'prod', cur = null, scanning = false, camStream = null;
+
+function show(m) {
+  mode = m; stopScan();
+  for (const s of ['prod', 'new', 'ia', 'qty']) $('#m-' + s).hidden = s !== m;
+  $('#common').hidden = !(m === 'qty' || m === 'ia');
+  document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === (m === 'qty' ? 'prod' : m)));
+  if (m === 'prod') renderProducts();
+}
 function guessMeal(h) { return h < 11.5 ? 'Desayuno' : h < 16 ? 'Comida' : 'Cena'; }
 function openDialog() {
-  $('#addForm').reset(); photo = null; setMsg('');
+  $('#addForm').reset(); photo = null; cur = null; setMsg(''); setNew('');
   const n = new Date();
   $('#fMeal').value = guessMeal(n.getHours() + n.getMinutes() / 60);
+  show(Object.keys(db.products).length ? 'prod' : 'new');
   $('#dlg').showModal();
 }
-$('#dlgClose').addEventListener('click', () => $('#dlg').close());
-$('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });
 function setMsg(t, err) { const m = $('#estMsg'); m.textContent = t; m.className = 'hint' + (err ? ' err' : ''); }
+function setNew(t, err) { const m = $('#newMsg'); m.textContent = t; m.className = 'hint' + (err ? ' err' : ''); }
 
+$('#dlgClose').addEventListener('click', () => $('#dlg').close());
+$('#dlg').addEventListener('close', stopScan);
+$('#seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) show(b.dataset.mode); });
+
+/* --- Mis productos --- */
+function renderProducts() {
+  const q = $('#pSearch').value.trim().toLowerCase();
+  const list = Object.values(db.products).filter((p) => p.name.toLowerCase().includes(q))
+    .sort((a, b) => (b.last || 0) - (a.last || 0) || a.name.localeCompare(b.name));
+  $('#pList').innerHTML = list.length
+    ? list.map((p) => `<button type="button" class="meal pick" data-pid="${p.id}"><span class="n">${esc(p.name)}<span class="mut" style="font-weight:400;display:block">${n0(p.kcal)} kcal · P ${n1(p.p)} · C ${n1(p.c)} · G ${n1(p.f)} por 100 g</span></span></button>`).join('')
+    : '<p class="mut">Todavía no tienes productos guardados. Pulsa «Nuevo» para añadir el primero.</p>';
+}
+$('#pSearch').addEventListener('input', renderProducts);
+$('#pList').addEventListener('click', (e) => { const b = e.target.closest('[data-pid]'); if (b) selectProduct(b.dataset.pid); });
+
+function selectProduct(id) {
+  cur = db.products[id]; if (!cur) return;
+  $('#qName').textContent = cur.name;
+  $('#qInfo').textContent = `${n0(cur.kcal)} kcal · P ${n1(cur.p)} · C ${n1(cur.c)} · G ${n1(cur.f)} por 100 g`;
+  $('#qUwrap').hidden = !cur.unitG;
+  $('#qG').value = cur.unitG || 100;
+  $('#qU').value = cur.unitG ? 1 : '';
+  updateQty(); show('qty');
+}
+const qtyG = () => Number($('#qG').value) || 0;
+function updateQty() {
+  const k = qtyG() / 100;
+  $('#qCalc').textContent = `${n0(cur.kcal * k)} kcal · P ${n1(cur.p * k)} g · C ${n1(cur.c * k)} g · G ${n1(cur.f * k)} g`;
+}
+$('#qG').addEventListener('input', () => { if (cur?.unitG) $('#qU').value = r1(qtyG() / cur.unitG); updateQty(); });
+$('#qU').addEventListener('input', () => { if (cur?.unitG) { $('#qG').value = Math.round(Number($('#qU').value) * cur.unitG); updateQty(); } });
+$('#btnDelProd').addEventListener('click', () => {
+  if (cur && confirm(`¿Borrar «${cur.name}» de tu lista de productos? Lo ya registrado no cambia.`)) { delete db.products[cur.id]; save(); cur = null; show('prod'); }
+});
+
+/* --- Nuevo producto --- */
+const num = (id) => Number($(id).value);
+function fillNew(o) {
+  if (o.name) $('#nName').value = o.name;
+  $('#nKcal').value = Math.round(o.kcal); $('#nP').value = r1(o.p || 0); $('#nC').value = r1(o.c || 0); $('#nF').value = r1(o.f || 0);
+  $('#nUnit').value = o.unitG > 0 ? o.unitG : '';
+}
+$('#btnSaveProd').addEventListener('click', () => {
+  const name = $('#nName').value.trim();
+  if (!name || $('#nKcal').value === '') return setNew('Falta el nombre y las kcal por 100 g.', true);
+  const barcode = $('#nCode').value.replace(/\D/g, '') || undefined;
+  const old = barcode && Object.values(db.products).find((p) => p.barcode === barcode);
+  const id = old ? old.id : String(Date.now());
+  db.products[id] = { id, barcode, name, kcal: num('#nKcal'), p: num('#nP') || 0, c: num('#nC') || 0, f: num('#nF') || 0, unitG: num('#nUnit') || undefined, last: Date.now() };
+  save(); $('#nCode').value = ''; selectProduct(id);
+});
+
+async function lookup() {
+  const code = $('#nCode').value.replace(/\D/g, '');
+  if (code.length < 8) return setNew('Escribe un código de 8 a 13 cifras.', true);
+  const ex = Object.values(db.products).find((p) => p.barcode === code);
+  if (ex) return selectProduct(ex.id);
+  setNew('Buscando en Open Food Facts…');
+  try {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,nutriments,serving_quantity`);
+    const j = await r.json();
+    if (j.status !== 1) return setNew('Ese código no está en la base. Haz una foto de la etiqueta.', true);
+    const n = j.product.nutriments || {};
+    const kcal = n['energy-kcal_100g'] ?? (n['energy_100g'] ? n['energy_100g'] / 4.184 : NaN);
+    if (!(kcal >= 0)) return setNew('El producto no trae datos nutricionales. Haz una foto de la etiqueta.', true);
+    fillNew({ name: [j.product.product_name, j.product.brands].filter(Boolean).join(' · '), kcal, p: n['proteins_100g'], c: n['carbohydrates_100g'], f: n['fat_100g'], unitG: Number(j.product.serving_quantity) });
+    setNew('Datos de Open Food Facts. Compáralos con tu etiqueta antes de guardar.');
+  } catch (e) { setNew('Sin conexión. Rellena los datos a mano o usa la foto de la etiqueta.', true); }
+}
+$('#btnLookup').addEventListener('click', lookup);
+$('#nCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookup(); } });
+
+function stopScan() {
+  scanning = false;
+  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  const v = $('#scanVideo'); if (v) { v.srcObject = null; v.hidden = true; }
+}
+$('#btnScan').addEventListener('click', async () => {
+  if (scanning) return stopScan();
+  if (!('BarcodeDetector' in window)) return setNew('Este navegador no puede escanear. Escribe el número o haz una foto de la etiqueta.', true);
+  try {
+    const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const v = $('#scanVideo'); v.srcObject = camStream; v.hidden = false; await v.play();
+    scanning = true; setNew('Apunta al código de barras…');
+    while (scanning) {
+      const found = await det.detect(v).catch(() => []);
+      if (found.length) { $('#nCode').value = found[0].rawValue; stopScan(); return lookup(); }
+      await sleep(250);
+    }
+  } catch (e) { stopScan(); setNew('No he podido usar la cámara. Revisa el permiso o escribe el número.', true); }
+});
+
+const LABEL_PROMPT = 'Lee la tabla de información nutricional de esta etiqueta de un producto de supermercado. ' +
+  'Responde SOLO con JSON: {"name": string o null, "kcal": number, "p": number, "c": number, "f": number, "unitG": number o null}. ' +
+  'Los valores deben ser POR 100 g (si la tabla solo da valores por ración, conviértelos a 100 g usando el peso de la ración). ' +
+  'kcal = energía en kcal (no kJ), p = proteínas, c = hidratos de carbono, f = grasas, en gramos. ' +
+  'unitG = peso en gramos de una unidad o ración si aparece, si no null. Si la tabla no se lee bien, devuelve kcal = -1.';
+$('#nPhoto').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  setNew('Leyendo la etiqueta…');
+  try {
+    const o = await gemini([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(f, 1600) } }]);
+    if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla. Prueba con más luz y la etiqueta recta.');
+    fillNew({ name: o.name, kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
+    setNew('Leído de la etiqueta. Compruébalo con la tabla antes de guardar.');
+  } catch (err) { setNew(err.message, true); }
+  e.target.value = '';
+});
+
+/* --- Comida con IA --- */
+$('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });
 $('#btnEst').addEventListener('click', async () => {
   const text = $('#fText').value.trim();
   if (!text && !photo) return setMsg('Escribe qué has comido o haz una foto.', true);
   setMsg('Estimando…');
   try {
-    const r = await estimate(text, photo);
+    const parts = [{ text: 'Eres nutricionista. Estima calorías y macros de lo que describe el usuario o se ve en la foto, para la cantidad indicada o, si no se indica, una ración habitual en España. ' +
+      'Responde SOLO con JSON: {"name": string, "kcal": number, "p": number, "c": number, "f": number} (p, c, f = gramos de proteína, carbohidratos y grasa). ' +
+      'Descripción: ' + (text || '(mira la foto)') }];
+    if (photo) parts.push({ inline_data: { mime_type: 'image/jpeg', data: await shrink(photo) } });
+    const r = await gemini(parts);
+    if (!(r.kcal >= 0)) throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.');
     $('#fName').value = r.name || text || 'Comida';
-    $('#fKcal').value = Math.round(r.kcal);
-    $('#fP').value = Math.round(r.p); $('#fC').value = Math.round(r.c); $('#fF').value = Math.round(r.f);
+    $('#fKcal').value = Math.round(r.kcal); $('#fP').value = Math.round(r.p || 0); $('#fC').value = Math.round(r.c || 0); $('#fF').value = Math.round(r.f || 0);
     setMsg('Estimación de la IA: revísala y corrígela si hace falta.');
   } catch (e) { setMsg(e.message, true); }
 });
 
+/* --- Guardar --- */
 $('#addForm').addEventListener('submit', (ev) => {
   ev.preventDefault();
   const now = new Date();
-  dayRW(todayKey()).entries.push({
-    id: Date.now(), t: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-    meal: $('#fMeal').value, name: $('#fName').value.trim(),
-    kcal: Number($('#fKcal').value) || 0, p: Number($('#fP').value) || 0, c: Number($('#fC').value) || 0, f: Number($('#fF').value) || 0,
-    extra: $('#fExtra').checked,
-  });
+  const base = { id: Date.now(), t: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, meal: $('#fMeal').value, extra: $('#fExtra').checked };
+  let entry;
+  if (mode === 'qty' && cur) {
+    const g = qtyG(); if (!(g > 0)) return alert('Indica la cantidad en gramos.');
+    const k = g / 100;
+    entry = { ...base, name: `${cur.name} · ${n0(g)} g`, kcal: Math.round(cur.kcal * k), p: r1(cur.p * k), c: r1(cur.c * k), f: r1(cur.f * k) };
+    cur.last = Date.now();
+  } else if (mode === 'ia') {
+    if (!$('#fName').value.trim() || $('#fKcal').value === '') return setMsg('Falta el nombre y las kcal.', true);
+    entry = { ...base, name: $('#fName').value.trim(), kcal: Number($('#fKcal').value) || 0, p: Number($('#fP').value) || 0, c: Number($('#fC').value) || 0, f: Number($('#fF').value) || 0 };
+  } else return;
+  dayRW(todayKey()).entries.push(entry);
   save(); $('#dlg').close(); view = 'hoy'; render();
 });
 
-/* ---------- Estimación con Gemini ---------- */
-async function shrink(file) {
+/* ---------- Gemini ---------- */
+const API = 'https://generativelanguage.googleapis.com/v1beta';
+async function shrink(file, max = 1024) {
   const bmp = await createImageBitmap(file);
-  const k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const cv = document.createElement('canvas');
   cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
   cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-  return cv.toDataURL('image/jpeg', 0.8).split(',')[1];
+  return cv.toDataURL('image/jpeg', 0.85).split(',')[1];
 }
-async function estimate(text, file) {
+const callGemini = (model, parts, key) => fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+  body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } }),
+});
+// Si el modelo guardado ya no existe (404), busca uno "flash" disponible y lo guarda.
+async function pickModel(key) {
+  try {
+    const j = await (await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } })).json();
+    const ok = (j.models || []).filter((m) => m.supportedGenerationMethods?.includes('generateContent') && /flash/.test(m.name) && !/(lite|image|tts|live|audio|embedding)/.test(m.name)).map((m) => m.name.replace('models/', ''));
+    return ok.find((n) => /latest/.test(n)) || ok.sort().pop();
+  } catch (e) { return undefined; }
+}
+async function gemini(parts) {
   const s = db.settings;
   if (!s.apiKey) throw new Error('Falta la clave de Gemini en Ajustes. Mientras tanto, rellena los campos a mano.');
-  const parts = [{ text: 'Eres nutricionista. Estima calorías y macros de lo que describe el usuario o se ve en la foto, para una ración habitual en España. ' +
-    'Responde SOLO con JSON: {"name": string, "kcal": number, "p": number, "c": number, "f": number} (p, c, f = gramos de proteína, carbohidratos y grasa). ' +
-    'Descripción: ' + (text || '(mira la foto)') }];
-  if (file) parts.push({ inline_data: { mime_type: 'image/jpeg', data: await shrink(file) } });
   let r;
-  try {
-    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.model)}:generateContent`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.apiKey },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } }),
-    });
-  } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); }
+  try { r = await callGemini(s.model, parts, s.apiKey); } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); }
+  if (r.status === 404) {
+    const m = await pickModel(s.apiKey);
+    if (m) { s.model = m; save(); r = await callGemini(m, parts, s.apiKey); }
+  }
   if (!r.ok) throw new Error(`Gemini respondió ${r.status}. Revisa la clave y el modelo en Ajustes.`);
   const j = await r.json();
   const raw = j.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  try {
-    const o = JSON.parse(raw.replace(/^```json|```$/g, '').trim());
-    if (!(o.kcal >= 0)) throw 0;
-    return { name: o.name, kcal: +o.kcal, p: +o.p || 0, c: +o.c || 0, f: +o.f || 0 };
-  } catch (e) { throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.'); }
+  try { return JSON.parse(raw.replace(/^```json|```$/g, '').trim()); } catch (e) { throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.'); }
 }
 
 render();

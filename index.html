@@ -20,28 +20,87 @@
 <dialog id="dlg">
   <form id="addForm" method="dialog">
     <div class="dlg-head"><h2>Añadir</h2><button type="button" id="dlgClose" aria-label="Cerrar" class="icon">✕</button></div>
-    <label for="fText">Describe lo que has comido</label>
-    <input id="fText" type="text" placeholder="Ej.: un croissant en la cafetería" autocomplete="off">
-    <div class="row">
-      <label class="btn ghost" for="fPhoto">Foto</label>
-      <input id="fPhoto" type="file" accept="image/*" capture="environment" hidden>
-      <button type="button" id="btnEst" class="btn">Estimar con IA</button>
+    <div class="seg" id="seg">
+      <button type="button" data-mode="prod">Productos</button>
+      <button type="button" data-mode="new">Nuevo</button>
+      <button type="button" data-mode="ia">Comida (IA)</button>
     </div>
-    <p id="estMsg" class="hint"></p>
-    <label for="fName">Nombre</label>
-    <input id="fName" type="text" required>
-    <div class="grid4">
-      <div><label for="fKcal">kcal</label><input id="fKcal" type="number" inputmode="decimal" min="0" required></div>
-      <div><label for="fP">Prot. g</label><input id="fP" type="number" inputmode="decimal" min="0" value="0"></div>
-      <div><label for="fC">Carb. g</label><input id="fC" type="number" inputmode="decimal" min="0" value="0"></div>
-      <div><label for="fF">Grasa g</label><input id="fF" type="number" inputmode="decimal" min="0" value="0"></div>
+
+    <!-- 1. Mis productos -->
+    <section id="m-prod">
+      <label for="pSearch">Buscar en mis productos</label>
+      <input id="pSearch" type="text" autocomplete="off" placeholder="Ej.: yogur, pan, pollo">
+      <div id="pList"></div>
+    </section>
+
+    <!-- 2. Nuevo producto: código de barras o foto de la etiqueta -->
+    <section id="m-new" hidden>
+      <label for="nCode">Código de barras</label>
+      <div class="row">
+        <input id="nCode" type="text" inputmode="numeric" autocomplete="off" placeholder="8 a 13 cifras" style="flex:1">
+        <button type="button" id="btnScan" class="btn">Escanear</button>
+      </div>
+      <video id="scanVideo" playsinline muted hidden></video>
+      <div class="row" style="margin-top:10px">
+        <button type="button" id="btnLookup" class="btn">Buscar por código</button>
+        <label class="btn ghost" for="nPhoto" style="margin:0">Foto de la etiqueta</label>
+        <input id="nPhoto" type="file" accept="image/*" capture="environment" hidden>
+      </div>
+      <p id="newMsg" class="hint"></p>
+      <label for="nName">Nombre</label>
+      <input id="nName" type="text" autocomplete="off">
+      <p class="mut" style="margin:10px 0 0">Valores por 100 g, como en la etiqueta</p>
+      <div class="grid4">
+        <div><label for="nKcal">kcal</label><input id="nKcal" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div><label for="nP">Prot. g</label><input id="nP" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+        <div><label for="nC">Carb. g</label><input id="nC" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+        <div><label for="nF">Grasa g</label><input id="nF" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+      </div>
+      <label for="nUnit">Peso de una unidad o ración, en g (opcional)</label>
+      <input id="nUnit" type="number" inputmode="decimal" min="0" step="any">
+      <button type="button" id="btnSaveProd" class="btn primary big">Guardar producto y elegir cantidad</button>
+    </section>
+
+    <!-- 3. Comida casera o de restaurante: estimación con IA -->
+    <section id="m-ia" hidden>
+      <label for="fText">Describe lo que has comido, con cantidades</label>
+      <input id="fText" type="text" placeholder="Ej.: 2 rebanadas de pan integral y 80 g de pollo" autocomplete="off">
+      <div class="row" style="margin-top:10px">
+        <label class="btn ghost" for="fPhoto" style="margin:0">Foto</label>
+        <input id="fPhoto" type="file" accept="image/*" capture="environment" hidden>
+        <button type="button" id="btnEst" class="btn">Estimar con IA</button>
+      </div>
+      <p id="estMsg" class="hint"></p>
+      <label for="fName">Nombre</label>
+      <input id="fName" type="text">
+      <div class="grid4">
+        <div><label for="fKcal">kcal</label><input id="fKcal" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div><label for="fP">Prot. g</label><input id="fP" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+        <div><label for="fC">Carb. g</label><input id="fC" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+        <div><label for="fF">Grasa g</label><input id="fF" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+      </div>
+    </section>
+
+    <!-- Cantidad de un producto guardado -->
+    <section id="m-qty" hidden>
+      <h2 id="qName" style="margin-top:12px"></h2>
+      <p id="qInfo" class="mut" style="margin:2px 0 0"></p>
+      <div class="two">
+        <div><label for="qG">Cantidad (g)</label><input id="qG" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div id="qUwrap"><label for="qU">Unidades</label><input id="qU" type="number" inputmode="decimal" min="0" step="any"></div>
+      </div>
+      <p id="qCalc" class="ok" style="margin:12px 0 0"></p>
+      <button type="button" id="btnDelProd" class="btn ghost" style="margin-top:8px">Borrar este producto de mi lista</button>
+    </section>
+
+    <div id="common" hidden>
+      <label for="fMeal">Momento</label>
+      <select id="fMeal">
+        <option>Desayuno</option><option>Comida</option><option>Cena</option><option>Entre horas</option>
+      </select>
+      <label class="extra" for="fExtra"><input id="fExtra" type="checkbox"> Es un extra (fuera de dieta)</label>
+      <button type="submit" class="btn primary big">Guardar</button>
     </div>
-    <label for="fMeal">Momento</label>
-    <select id="fMeal">
-      <option>Desayuno</option><option>Comida</option><option>Cena</option><option>Entre horas</option>
-    </select>
-    <label class="extra" for="fExtra"><input id="fExtra" type="checkbox"> Es un extra (fuera de dieta)</label>
-    <button type="submit" class="btn primary big">Guardar</button>
   </form>
 </dialog>
 
