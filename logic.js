@@ -38,6 +38,21 @@
     return { keys, weekly, past, raw, todayTarget, eaten, adjust: todayTarget - s.target, floored: raw < s.floor };
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan };
+  // Texto en minúsculas y sin acentos, para buscar sin que importen.
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Productos del catálogo cuyo nombre (o formato) contiene todas las palabras buscadas.
+  function search(list, q, max = 30) {
+    const words = norm(q).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const out = [];
+    for (const p of list) {
+      const t = norm(`${p.name} ${p.fmt || ''}`);
+      if (words.every((w) => t.includes(w))) { out.push(p); if (out.length >= max) break; }
+    }
+    return out;
+  }
+
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

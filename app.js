@@ -172,6 +172,7 @@ function exportData() {
 const r1 = (n) => Math.round(n * 10) / 10;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let mode = 'prod', cur = null, scanning = false, camStream = null;
+let merc = null; // producto de Mercadona elegido en «Nuevo» (número, precio y tamaño del envase)
 
 function show(m) {
   mode = m; stopScan();
@@ -182,7 +183,7 @@ function show(m) {
 }
 function guessMeal(h) { return h < 11.5 ? 'Desayuno' : h < 16 ? 'Comida' : 'Cena'; }
 function openDialog() {
-  $('#addForm').reset(); photo = null; cur = null; setMsg(''); setNew('');
+  $('#addForm').reset(); photo = null; cur = null; merc = null; $('#mList').innerHTML = ''; setMsg(''); setNew('');
   const n = new Date();
   $('#fMeal').value = guessMeal(n.getHours() + n.getMinutes() / 60);
   show(Object.keys(db.products).length ? 'prod' : 'new');
@@ -238,9 +239,10 @@ $('#btnSaveProd').addEventListener('click', () => {
   const name = $('#nName').value.trim();
   if (!name || $('#nKcal').value === '') return setNew('Falta el nombre y las kcal por 100 g.', true);
   const barcode = $('#nCode').value.replace(/\D/g, '') || undefined;
-  const old = barcode && Object.values(db.products).find((p) => p.barcode === barcode);
+  const all = Object.values(db.products);
+  const old = (merc && all.find((p) => p.mid === merc.mid)) || (barcode && all.find((p) => p.barcode === barcode));
   const id = old ? old.id : String(Date.now());
-  db.products[id] = { id, barcode, name, kcal: num('#nKcal'), p: num('#nP') || 0, c: num('#nC') || 0, f: num('#nF') || 0, unitG: num('#nUnit') || undefined, last: Date.now() };
+  db.products[id] = { id, barcode, name, kcal: num('#nKcal'), p: num('#nP') || 0, c: num('#nC') || 0, f: num('#nF') || 0, unitG: num('#nUnit') || undefined, last: Date.now(), ...(merc || {}) };
   save(); $('#nCode').value = ''; selectProduct(id);
 });
 
@@ -301,6 +303,50 @@ $('#nPhoto').addEventListener('change', async (e) => {
   } catch (err) { setNew(err.message, true); }
   e.target.value = '';
 });
+
+/* --- Catálogo de Mercadona (datos/mercadona.json, lo actualiza GitHub Actions cada jueves) --- */
+let catalog = null;
+const eur = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }));
+async function loadCatalog() {
+  if (!catalog) catalog = fetch('datos/mercadona.json').then((r) => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => { catalog = null; return null; });
+  return catalog;
+}
+async function renderMerc() {
+  const q = $('#mSearch').value.trim();
+  if (!q) { $('#mList').innerHTML = ''; return; }
+  if (!catalog) $('#mList').innerHTML = '<p class="mut">Cargando catálogo…</p>';
+  const c = await loadCatalog();
+  if (q !== $('#mSearch').value.trim()) return; // ya se ha escrito otra cosa
+  if (!c) { $('#mList').innerHTML = '<p class="mut">No he podido cargar el catálogo. Revisa la conexión.</p>'; return; }
+  const list = L.search(c.products, q, 30);
+  const date = new Date(c.updated).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  $('#mList').innerHTML = (list.length
+    ? list.map((p) => `<button type="button" class="meal pick" data-mid="${esc(p.id)}"><span class="n">${esc(p.name)}<span class="mut" style="font-weight:400;display:block">${esc(p.fmt)} · ${eur(p.price)}${p.ref != null && p.refUnit ? ` (${eur(p.ref)}/${esc(p.refUnit)})` : ''}</span></span></button>`).join('')
+    : '<p class="mut">No hay productos con ese nombre.</p>') + `<p class="mut" style="font-size:12px">Precios de Mercadona del ${date}.</p>`;
+}
+$('#mSearch').addEventListener('input', renderMerc);
+$('#mList').addEventListener('click', (e) => { const b = e.target.closest('[data-mid]'); if (b) pickMerc(b.dataset.mid); });
+
+async function pickMerc(mid) {
+  const c = await loadCatalog(); const p = c?.products.find((x) => x.id === mid); if (!p) return;
+  const info = { mid: p.id, price: p.price, size: p.size || undefined };
+  const ex = Object.values(db.products).find((x) => x.mid === p.id);
+  if (ex) { Object.assign(ex, info); save(); return selectProduct(ex.id); } // ya lo tenías: solo se actualiza el precio
+  merc = info; const mine = merc;
+  $('#mList').innerHTML = ''; $('#mSearch').value = '';
+  fillNew({ name: `${p.name} · ${p.fmt}`, kcal: NaN }); $('#nKcal').value = '';
+  if (!p.label) return setNew('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
+  setNew('Leyendo la tabla nutricional de Mercadona…');
+  try {
+    let blob;
+    try { blob = await (await fetch(`${c.img}${p.label}?fit=max&w=1600&h=1600`)).blob(); } catch (e) { throw new Error('No he podido descargar la foto de la etiqueta. Revisa la conexión.'); }
+    const o = await gemini([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(blob, 1600) } }]);
+    if (merc !== mine) return; // se ha elegido otro producto mientras tanto
+    if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla en la foto de Mercadona. Escanea el envase o escribe los datos.');
+    fillNew({ kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
+    setNew('Leído de la foto de Mercadona. Compruébalo antes de guardar.');
+  } catch (err) { if (merc === mine) setNew(err.message, true); }
+}
 
 /* --- Comida con IA --- */
 $('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });

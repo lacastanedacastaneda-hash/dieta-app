@@ -33,8 +33,11 @@
       <div id="pList"></div>
     </section>
 
-    <!-- 2. Nuevo producto: código de barras o foto de la etiqueta -->
+    <!-- 2. Nuevo producto: catálogo de Mercadona, código de barras o foto de la etiqueta -->
     <section id="m-new" hidden>
+      <label for="mSearch">Buscar en Mercadona</label>
+      <input id="mSearch" type="text" autocomplete="off" placeholder="Ej.: leche semi, yogur griego">
+      <div id="mList"></div>
       <label for="nCode">Código de barras</label>
       <div class="row">
         <input id="nCode" type="text" inputmode="numeric" autocomplete="off" placeholder="8 a 13 cifras" style="flex:1">
