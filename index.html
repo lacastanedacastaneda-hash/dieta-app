@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F6F4EF">
+<title>Mi comida</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app" aria-live="polite"></main>
+<nav id="nav">
+  <button data-nav="hoy">Hoy</button>
+  <button data-nav="semana">Semana</button>
+  <button data-nav="ajustes">Ajustes</button>
+</nav>
+
+<dialog id="dlg">
+  <form id="addForm" method="dialog">
+    <div class="dlg-head"><h2>Añadir</h2><button type="button" id="dlgClose" aria-label="Cerrar" class="icon">✕</button></div>
+    <label for="fText">Describe lo que has comido</label>
+    <input id="fText" type="text" placeholder="Ej.: un croissant en la cafetería" autocomplete="off">
+    <div class="row">
+      <label class="btn ghost" for="fPhoto">Foto</label>
+      <input id="fPhoto" type="file" accept="image/*" capture="environment" hidden>
+      <button type="button" id="btnEst" class="btn">Estimar con IA</button>
+    </div>
+    <p id="estMsg" class="hint"></p>
+    <label for="fName">Nombre</label>
+    <input id="fName" type="text" required>
+    <div class="grid4">
+      <div><label for="fKcal">kcal</label><input id="fKcal" type="number" inputmode="decimal" min="0" required></div>
+      <div><label for="fP">Prot. g</label><input id="fP" type="number" inputmode="decimal" min="0" value="0"></div>
+      <div><label for="fC">Carb. g</label><input id="fC" type="number" inputmode="decimal" min="0" value="0"></div>
+      <div><label for="fF">Grasa g</label><input id="fF" type="number" inputmode="decimal" min="0" value="0"></div>
+    </div>
+    <label for="fMeal">Momento</label>
+    <select id="fMeal">
+      <option>Desayuno</option><option>Comida</option><option>Cena</option><option>Entre horas</option>
+    </select>
+    <label class="extra" for="fExtra"><input id="fExtra" type="checkbox"> Es un extra (fuera de dieta)</label>
+    <button type="submit" class="btn primary big">Guardar</button>
+  </form>
+</dialog>
+
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
