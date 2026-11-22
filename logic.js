@@ -179,8 +179,8 @@
     const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
     const dt = (hhmm) => `${start.replace(/-/g, '')}T${hhmm.replace(':', '')}00`;
     const utc = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-    const ev = (id, title, hhmm, rrule, desc) => (/^\d{2}:\d{2}$/.test(hhmm || '') ? [
-      'BEGIN:VEVENT', `UID:mi-comida-${id}@recordatorios`, `DTSTAMP:${utc}`, `DTSTART:${dt(hhmm)}`, 'DURATION:PT10M',
+    const ev = (id, title, hhmm, rrule, desc, min = 10) => (/^\d{2}:\d{2}$/.test(hhmm || '') ? [
+      'BEGIN:VEVENT', `UID:mi-comida-${id}@recordatorios`, `DTSTAMP:${utc}`, `DTSTART:${dt(hhmm)}`, `DURATION:PT${min}M`,
       `RRULE:${rrule}`, `SUMMARY:${esc(title)}`, `DESCRIPTION:${esc(desc)}`, 'TRANSP:TRANSPARENT',
       'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(title)}`, 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT',
     ] : []);
@@ -188,9 +188,10 @@
     const gd = [...new Set(gymDays)].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => RRDAY[d]);
     const lines = [
       'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Mi comida//Recordatorios//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Mi comida',
-      ...ev('desayuno', 'Desayuno', rem.desayuno, 'FREQ=DAILY', meal),
-      ...ev('comida', 'Comida', rem.almuerzo, 'FREQ=DAILY', meal),
-      ...ev('cena', 'Cena', rem.cena, 'FREQ=DAILY', meal),
+      // Duración de cada comida: desayuno 15 minutos; comida y cena, 45.
+      ...ev('desayuno', 'Desayuno', rem.desayuno, 'FREQ=DAILY', meal, 15),
+      ...ev('comida', 'Comida', rem.almuerzo, 'FREQ=DAILY', meal, 45),
+      ...ev('cena', 'Cena', rem.cena, 'FREQ=DAILY', meal, 45),
       ...(gd.length ? ev('gimnasio', 'Gimnasio', rem.gym, `FREQ=WEEKLY;BYDAY=${gd.join(',')}`, 'Toca gimnasio. Después, márcalo en Mi comida.') : []),
       ...ev('compra', 'Lista de la compra', rem.compra, 'FREQ=WEEKLY;BYDAY=FR', 'Abre la pestaña Compra de Mi comida.'),
       'END:VCALENDAR',
