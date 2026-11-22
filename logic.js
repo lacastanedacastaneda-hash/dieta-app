@@ -79,6 +79,7 @@
       semanas,
       reglas: { agua: n(r.aguaVasos ?? r.agua, 14), fruta: n(r.frutas ?? r.fruta, 3), lacteo: n(r.lacteos ?? r.lacteo, 2), ensalada: n(r.ensaladasCrudas ?? r.ensaladas, 2) },
       legumbresMax: n(j.reglasSemanales?.legumbresMaxVeces, 2),
+      pesoCadaDias: n(j.reglasSemanales?.controlPesoYGrasaCadaDias, 15),
       racionMaxG: n(j.racionCarnePescadoMaxGramos ?? j.proteinaMaxGramosComidaYCena, 0) || null,
       prohibido: Array.isArray(j.prohibidoFueraDeComidas) ? j.prohibidoFueraDeComidas.map(String) : [],
       permitido: Array.isArray(j.permitido) ? j.permitido.map(String) : [],
@@ -100,6 +101,41 @@
     return { week: wi, weekName: p.semanas[wi].name, meals: PMEALS.map(([key, meal]) => ({ key, meal, ...d[key] })) };
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay };
+  // Resumen de la semana de `k` con el plan. Los días pasados cuentan sus 3 comidas (sin marcar = «sin marcar»);
+  // de hoy solo cuentan las ya marcadas. No cuentan los días futuros ni los anteriores a importar el plan (p.desde).
+  const PST = ['ok', 'cambio', 'salto'];
+  function planWeekStats(db, k) {
+    const p = db.plan, sel = db.settings.planSel, ws = weekStart(parse(k));
+    const keys = Array.from({ length: 7 }, (_, i) => iso(addDays(ws, i))), idx = keys.indexOf(k);
+    const st = { ok: 0, cambio: 0, salto: 0, sin: 0, total: 0, legumbres: 0, legumbresMenu: 0, reglas: {}, dias: [], elapsed: 0 };
+    for (const r of Object.keys(p.reglas)) st.reglas[r] = 0;
+    keys.forEach((kk, i) => {
+      const d = dayRO(db, kk), pd = planDay(p, sel, kk), marks = d.plan || {};
+      const fut = i > idx, pre = !!p.desde && kk < p.desde;
+      st.dias.push({ key: kk, fut, pre, today: i === idx, meals: pd.meals.map((m) => (PST.includes(marks[m.key]) ? marks[m.key] : '')) });
+      st.legumbresMenu += pd.meals.filter((m) => m.legumbres).length;
+      if (fut || pre) return;
+      st.elapsed++;
+      for (const m of pd.meals) {
+        const v = PST.includes(marks[m.key]) ? marks[m.key] : '';
+        if (v) st[v]++; else if (i < idx) st.sin++;
+        if (v || i < idx) st.total++;
+        if (v === 'ok' && m.legumbres) st.legumbres++;
+      }
+      for (const r of Object.keys(p.reglas)) if (((d.cnt || {})[r] || 0) >= p.reglas[r]) st.reglas[r]++;
+    });
+    st.pct = st.total ? Math.round((st.ok / st.total) * 100) : null;
+    return st;
+  }
+
+  // Último peso registrado y días que han pasado desde entonces hasta `k` (null si no hay ninguno).
+  function lastWeight(db, k) {
+    const ks = Object.keys(db.weights || {}).filter((x) => x <= k).sort();
+    if (!ks.length) return null;
+    const last = ks[ks.length - 1];
+    return { key: last, kg: db.weights[last], days: Math.round((parse(k) - parse(last)) / 864e5) };
+  }
+
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

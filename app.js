@@ -115,22 +115,54 @@ function viewSemana() {
   const extras = p.keys.flatMap((kk) => L.dayRO(db, kk).entries.filter((e) => e.extra));
   const gymDone = p.keys.filter((kk) => L.dayRO(db, kk).gym === 'yes').length;
   const gymPlan = s.gymDays.length;
-  const wk = Object.keys(db.weights).sort();
-  const wLast = wk.length ? db.weights[wk[wk.length - 1]] : null;
+  const lw = L.lastWeight(db, k), wLast = lw ? lw.kg : null;
   const lost = wLast !== null ? s.startWeight - wLast : 0;
-  return `<p class="sub">Semana actual</p><h1>Semana</h1>
-  <section class="card"><div class="row between"><h2>Calorías por día</h2><span class="mut">Línea: ${n0(s.target)} kcal</span></div>
+  const cal = `<section class="card"><div class="row between"><h2>Calorías por día</h2><span class="mut">Línea: ${n0(s.target)} kcal</span></div>
     <div class="chart"><div class="line" style="bottom:${Math.round((s.target / max) * H)}px"></div>${bars}</div>
     <div class="days">${lbl}</div>
     <p class="mut" style="margin:10px 0 0">Naranja: día con extra · verde claro: hoy</p></section>
   <div class="two">
     <section class="card"><p class="mut" style="margin:0">Presupuesto semanal</p><b style="font-size:22px">${n0(p.weekly)}</b><p class="mut" style="margin:2px 0 0">kcal · quedan ${n0(p.weekly - p.eaten)}</p></section>
-    <section class="card"><p class="mut" style="margin:0">Extras de la semana</p><b style="font-size:22px;color:var(--orange)">${extras.length}</b><p class="mut" style="margin:2px 0 0">${n0(extras.reduce((a, e) => a + e.kcal, 0))} kcal en total</p></section>
-  </div>
-  <section class="card"><div class="row between"><h2>Gimnasio</h2><span class="mut" style="font-size:13px">${gymDone} sesiones (previstas: ${gymPlan})</span></div></section>
-  <section class="card"><div class="row between"><h2>Peso</h2><span class="mut" style="font-size:13px">${n0(s.startWeight)} kg → ${n0(s.goalWeight)} kg</span></div>
+    ${db.plan ? '' : `<section class="card"><p class="mut" style="margin:0">Extras de la semana</p><b style="font-size:22px;color:var(--orange)">${extras.length}</b><p class="mut" style="margin:2px 0 0">${n0(extras.reduce((a, e) => a + e.kcal, 0))} kcal en total</p></section>`}
+  </div>`;
+  const gym = `<section class="card"><div class="row between"><h2>Gimnasio</h2><span class="mut" style="font-size:13px">${gymDone} sesiones (previstas: ${gymPlan})</span></div></section>`;
+  // Con plan: aviso de pesarse cada N días (por defecto 15).
+  const every = db.plan ? db.plan.pesoCadaDias || 15 : 0;
+  const due = every && (!lw || lw.days >= every);
+  const peso = `<section class="card"><div class="row between"><h2>Peso</h2><span class="mut" style="font-size:13px">${n0(s.startWeight)} kg → ${n0(s.goalWeight)} kg</span></div>
     ${wLast !== null ? `<p style="margin:8px 0 0"><b style="font-size:22px">${n1(wLast)} kg</b> <span class="ok">${lost >= 0 ? '−' : '+'}${n1(Math.abs(lost))} kg desde el inicio</span></p>
-    <div class="bar"><i style="width:${pct(lost, s.startWeight - s.goalWeight)}%"></i></div>` : '<p class="mut">Registra tu peso en Ajustes.</p>'}</section>`;
+    <div class="bar"><i style="width:${pct(lost, s.startWeight - s.goalWeight)}%"></i></div>` : '<p class="mut">Registra tu peso en Ajustes.</p>'}
+    ${every ? `<p class="${due ? 'hint err' : 'mut'}" style="margin:4px 0 0">${due
+    ? `Toca pesarte (cada ${every} días)${lw ? `: la última vez fue hace ${lw.days} días` : ''}. Hazlo en Ajustes > Peso de hoy.`
+    : `Última pesada hace ${lw.days} ${lw.days === 1 ? 'día' : 'días'}; la siguiente, dentro de ${every - lw.days}.`}</p>` : ''}</section>`;
+  if (!db.plan) return `<p class="sub">Semana actual</p><h1>Semana</h1>${cal}${gym}${peso}`;
+  return `<p class="sub">Semana actual · ${esc(L.planDay(db.plan, s.planSel, k).weekName)}</p><h1>Semana</h1>
+  ${planWeekHtml(k)}${gym}${peso}
+  <h2 style="margin:22px 0 0">Calorías</h2><p class="mut" style="margin:2px 0 0">Solo cuentan las comidas y extras que apuntas con kcal.</p>${cal}`;
+}
+
+// «Semana» con plan: cumplimiento, desvíos y reglas.
+function planWeekHtml(k) {
+  const p = db.plan, st = L.planWeekStats(db, k);
+  const dots = st.dias.map((d, i) => `<div class="pday ${d.today ? 'now' : ''}">${d.meals.map((v) => `<i class="dot ${d.fut || d.pre ? 'fut' : v}"></i>`).join('')}<span>${DOW[i]}</span></div>`).join('');
+  const RL = [['agua', 'Agua'], ['fruta', 'Fruta'], ['lacteo', 'Lácteos'], ['ensalada', 'Ensaladas']];
+  const reglas = RL.map(([r, lab]) => `<div class="row between rl"><span>${lab} <span class="mut">(${p.reglas[r]} al día)</span></span><b>${st.reglas[r]} de ${st.elapsed} ${st.elapsed === 1 ? 'día' : 'días'}</b></div>`).join('');
+  const legOver = st.legumbres > p.legumbresMax;
+  const ws = L.weekStart(L.parse(k)), we = L.addDays(ws, 6);
+  const extras = st.dias.flatMap((d) => L.dayRO(db, d.key).entries).filter((e) => e.extra);
+  return `<section class="card"><div class="row between"><h2>Cumplimiento del plan</h2><b class="big-pct">${st.pct === null ? '—' : st.pct + ' %'}</b></div>
+    <p class="mut" style="margin:2px 0 0">${st.pct === null ? 'Aún no has marcado ninguna comida esta semana.' : `${st.ok} de ${st.total} comidas seguidas`}</p>
+    <div class="pweek">${dots}</div>
+    <p class="mut" style="margin:8px 0 0"><i class="dot ok"></i> seguida · <i class="dot cambio"></i> cambiada o saltada · <i class="dot"></i> sin marcar</p></section>
+  <div class="two">
+    <section class="card"><p class="mut" style="margin:0">Desvíos</p><b style="font-size:22px;color:var(--orange)">${st.cambio + st.salto}</b>
+      <p class="mut" style="margin:2px 0 0">${st.cambio} cambiadas · ${st.salto} saltadas${st.sin ? ` · ${st.sin} sin marcar` : ''}</p></section>
+    <section class="card"><p class="mut" style="margin:0">Extras</p><b style="font-size:22px;color:var(--orange)">${extras.length}</b>
+      <p class="mut" style="margin:2px 0 0">${n0(extras.reduce((a, e) => a + (e.kcal || 0), 0))} kcal apuntadas</p></section>
+  </div>
+  <section class="card"><h2>Reglas</h2>${reglas}
+    <div class="row between rl"><span>Legumbres <span class="mut">(máximo ${p.legumbresMax} a la semana)</span></span><b style="${legOver ? 'color:var(--orange)' : ''}">${st.legumbres} de ${p.legumbresMax}</b></div>
+    <p class="mut" style="margin:6px 0 0">Las legumbres cuentan al marcar «Seguida» una comida con legumbres (en el menú de esta semana hay ${st.legumbresMenu}). Semana del ${ws.getDate()} al ${we.getDate()}.</p></section>`;
 }
 
 // Ajustes > Plan de comidas: importar, elegir qué semana toca y quitar.
@@ -242,7 +274,8 @@ document.addEventListener('change', async (ev) => {
     try {
       let j;
       try { j = JSON.parse(await f.text()); } catch (e) { throw new Error('El archivo no es un JSON válido.'); }
-      db.plan = L.readPlan(j);
+      // `desde`: los días anteriores a importar el plan no cuentan en «Semana» (al cambiar de plan se conserva).
+      db.plan = { ...L.readPlan(j), desde: db.plan?.desde || todayKey() };
       // Primera vez: alternar empezando esta semana por la primera.
       if (!db.settings.planSel) db.settings.planSel = { mode: 'alt', week: 0, start: L.iso(L.weekStart(new Date())) };
       save(); render();
@@ -623,5 +656,7 @@ async function ia(parts) {
   const o = await askOpenRouter(parts); aiVia = 'OpenRouter'; return o;
 }
 
+// Planes importados con la versión anterior no tenían `desde`: se cuenta desde hoy.
+if (db.plan && !db.plan.desde) { db.plan.desde = todayKey(); save(); }
 render();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
