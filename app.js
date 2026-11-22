@@ -159,7 +159,7 @@ function viewSemana() {
     ${db.plan ? '' : `<section class="card"><p class="mut" style="margin:0">Extras de la semana</p><b style="font-size:22px;color:var(--orange)">${extras.length}</b><p class="mut" style="margin:2px 0 0">${n0(extras.reduce((a, e) => a + e.kcal, 0))} kcal en total</p></section>`}
   </div>`;
   const gym = `<section class="card"><div class="row between"><h2>Gimnasio</h2><span class="mut" style="font-size:13px">${gw.fuerza.done} de fuerza (previstas: ${gw.fuerza.plan})</span></div>
-    ${gw.ligera.plan || gw.ligera.done ? `<p class="mut" style="margin:4px 0 0;text-align:right">${gw.ligera.done} ligeras (previstas: ${gw.ligera.plan})</p>` : ''}</section>`;
+    ${gw.ligera.plan || gw.ligera.done ? `<p class="mut" style="margin:4px 0 0;text-align:right">${gw.ligera.done} ligeras (previstas: ${gw.ligera.plan})</p>` : ''}${musclesHtml(k)}</section>`;
   // Con plan: aviso de pesarse cada N días (por defecto 15).
   const every = db.plan ? db.plan.pesoCadaDias || 15 : 0;
   const due = every && (!lw || lw.days >= every);
@@ -445,6 +445,13 @@ document.addEventListener('change', async (ev) => {
   } else if (ev.target.id.startsWith('wo_n_')) { // renombrar un ejercicio (en todos los días que lo tengan)
     const id = ev.target.id.slice(5), name = ev.target.value.trim().slice(0, 60);
     if (name) { for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) x.name = name; save(); }
+  } else if (ev.target.id === 'woMq') { // añadir un ejercicio desde una máquina
+    const m = mqData && mqData.by[ev.target.value];
+    if (m) { const w = wo(), dow = L.parse(woKey()).getDay(); (w.ex[dow] = w.ex[dow] || []).push({ id: woId(), name: m.nombre.slice(0, 60), mq: m.id }); save(); render(); }
+  } else if (ev.target.id.startsWith('wo_m_')) { // cambiar la máquina de un ejercicio (en todos los días que lo tengan)
+    const id = ev.target.id.slice(5), mq = ev.target.value;
+    for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) { if (mq) x.mq = mq; else delete x.mq; }
+    save();
   } else if (/^wo_[srk]_/.test(ev.target.id)) { // corregir un ejercicio ya hecho
     const id = ev.target.id.slice(5), wk = woKey(), x = woFind(id), w = wo();
     if (x && w.log[wk] && w.log[wk][id]) { const e = woRead(x); if (e) { w.log[wk][id] = e; save(); } }
@@ -749,9 +756,31 @@ const wo = () => { db.workout = db.workout || {}; db.workout.ex = db.workout.ex 
 const woKey = () => L.iso(L.addDays(L.parse(todayKey()), woOff));
 const woId = () => `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const kgTxt = (kg) => (kg ? String(kg).replace('.', ',') : '');
+// Máquinas del gimnasio (datos/maquinas.json). Cada ejercicio puede llevar `mq` = id de la máquina.
+let mqP = null, mqData = null; // promesa; {list, by: {id: máquina}}
+function loadMq() {
+  if (!mqP) {
+    mqP = fetch('datos/maquinas.json').then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((j) => { mqData = { list: j.maquinas, by: Object.fromEntries(j.maquinas.map((m) => [m.id, m])) }; return mqData; })
+      .catch(() => { mqP = null; return null; });
+  }
+  return mqP;
+}
+const mqOf = (x) => (x && x.mq && mqData ? mqData.by[x.mq] || null : null);
+const MQLOAD = { discos: 'Kg: solo los discos que pones, sin contar la máquina.', selectorizada: 'Kg: el número de la pila de placas.' };
+// Lista desplegable de máquinas: primero los grupos que tocan ese día según la rutina, luego el resto.
+function mqSelect(id, cur, dayG, first) {
+  if (!mqData) return '<p class="mut" style="margin:6px 0 0">Cargando máquinas…</p>';
+  const by = {};
+  for (const m of mqData.list) { const g = L.exGroup(m.nombre, m) || 'Otras'; (by[g] = by[g] || []).push(m); }
+  const order = [...dayG, ...L.MGNAMES.filter((g) => !dayG.includes(g)), 'Otras'].filter((g) => by[g]);
+  const opt = (m) => `<option value="${esc(m.id)}" ${m.id === cur ? 'selected' : ''}>${esc(m.nombre)} · ${esc(m.marca.split(' ')[0])} ${esc(m.modelo || '')}</option>`;
+  return `<select id="${id}">${first}${order.map((g) => `<optgroup label="${g}${dayG.includes(g) ? ' (toca este día)' : ''}">${by[g].map(opt).join('')}</optgroup>`).join('')}</select>`;
+}
 function viewEntreno() {
+  if (!mqData) loadMq().then((r) => { if (r && view === 'entreno') render(); });
   const k = woKey(), dow = L.parse(k).getDay(), w = wo(), rt = L.routineOf(db.settings)[dow];
-  const list = w.ex[dow] || [], dayLog = w.log[k] || {};
+  const list = w.ex[dow] || [], dayLog = w.log[k] || {}, dayG = L.groupsIn(rt.txt);
   const others = WEEK.filter((i) => i !== dow && (w.ex[i] || []).length);
   const copyBtns = others.length ? `<p class="mut" style="margin:10px 0 4px">O copia los de otro día (comparten historial):</p><div class="chips">${others.map((i) => `<button class="chip" data-act="woCopy" data-from="${i}">${cap(DOWFULL[i])}</button>`).join('')}</div>` : '';
   const head = `<p class="sub">${woOff === 0 ? 'Hoy' : cap(fdate(k, { weekday: 'long', day: 'numeric', month: 'long' }))} · ${RTLABEL[rt.t]}</p><h1>Entreno</h1>
@@ -764,9 +793,12 @@ function viewEntreno() {
       ${list.map((x, i) => `<div class="exedit"><input id="wo_n_${x.id}" type="text" autocomplete="off" value="${esc(x.name)}" aria-label="Nombre del ejercicio">
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="-1" aria-label="Subir" ${i ? '' : 'disabled'}>↑</button>
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="1" aria-label="Bajar" ${i < list.length - 1 ? '' : 'disabled'}>↓</button>
-        <button class="btn sq" data-act="woDel" data-id="${x.id}" aria-label="Quitar ${esc(x.name)}">✕</button></div>`).join('')}
-      <label for="woNew">Añadir ejercicio</label>
-      <div class="row"><input id="woNew" type="text" autocomplete="off" placeholder="Ej.: Press de banca" style="flex:1"><button class="btn" data-act="woAdd">Añadir</button></div>
+        <button class="btn sq" data-act="woDel" data-id="${x.id}" aria-label="Quitar ${esc(x.name)}">✕</button></div>
+        <div class="exmq">${mqSelect('wo_m_' + x.id, x.mq, dayG, '<option value="">Sin máquina</option>')}</div>`).join('')}
+      <label for="woMq">Añadir una máquina</label>
+      ${mqSelect('woMq', '', dayG, '<option value="">Elige una máquina…</option>')}
+      <label for="woNew">O escribe un ejercicio sin máquina</label>
+      <div class="row"><input id="woNew" type="text" autocomplete="off" placeholder="Ej.: Press francés con mancuernas" style="flex:1"><button class="btn" data-act="woAdd">Añadir</button></div>
       ${copyBtns}
       <button class="btn primary big" data-act="woEdit">Listo</button></section>`;
   }
@@ -775,7 +807,8 @@ function viewEntreno() {
       ${copyBtns}<button class="btn primary big" data-act="woEdit">Añadir ejercicios</button></section>`;
   }
   const cards = list.map((x) => {
-    const e = dayLog[x.id], last = L.exHistory(w.log, x.id, k)[0], base = e || (last && last.e);
+    const e = dayLog[x.id], last = L.exHistory(w.log, x.id, k)[0], base = e || (last && last.e), m = mqOf(x);
+    const musc = m && m.principal ? `${cap(m.principal)}${m.secundarios.length ? `; también ${m.secundarios.join(', ')}` : ''}` : '';
     const hist = woOpen === x.id ? (() => {
       const all = L.exHistory(w.log, x.id), best = L.exBest(w.log, x.id);
       return `<div class="exhist">${best ? `<p style="margin:0 0 6px;font-size:13px"><b>Mejor marca:</b> ${L.fmtSet(best.e)} <span class="mut">(${fdate(best.key)})</span></p>` : ''}
@@ -783,12 +816,14 @@ function viewEntreno() {
     })() : '';
     return `<div class="ex ${e ? 'done' : ''}">
       <div class="row between"><b>${esc(x.name)}</b>${e ? '<span class="ok">✓ Hecho</span>' : ''}</div>
+      ${m ? `<p class="mut" style="margin:2px 0 0">${esc(m.marca)} ${esc(m.modelo || '')}${musc ? ` · ${esc(musc)}` : ''}</p>` : ''}
       <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p>
       <div class="exin">
         <div><label for="wo_s_${x.id}">Series</label><input id="wo_s_${x.id}" type="number" inputmode="numeric" min="1" value="${base ? base.s : 3}"></div>
         <div><label for="wo_r_${x.id}">Repeticiones</label><input id="wo_r_${x.id}" type="text" inputmode="numeric" autocomplete="off" value="${base ? base.r.join(', ') : '10'}"></div>
         <div><label for="wo_k_${x.id}">Kg</label><input id="wo_k_${x.id}" type="text" inputmode="decimal" autocomplete="off" placeholder="sin peso" value="${base ? kgTxt(base.kg) : ''}"></div>
       </div>
+      ${m && MQLOAD[m.carga] ? `<p class="mut" style="margin:4px 0 0">${MQLOAD[m.carga]}</p>` : ''}
       <div class="row" style="margin-top:8px">${e ? `<button class="btn ghost" data-act="woUndo" data-id="${x.id}">Deshacer</button>` : `<button class="btn primary" data-act="woDone" data-id="${x.id}">Hecho</button>`}
         <button class="btn ghost" style="margin-left:auto" data-act="woHist" data-id="${x.id}">${woOpen === x.id ? 'Ocultar progreso' : 'Progreso'}</button></div>
       ${hist}</div>`;
@@ -801,6 +836,17 @@ function viewEntreno() {
 // Guarda un ejercicio con lo que hay en sus casillas; null si las repeticiones no se entienden.
 function woRead(x) { return L.cleanSet(x.name, $('#wo_s_' + x.id).value, $('#wo_r_' + x.id).value, $('#wo_k_' + x.id).value); }
 const woFind = (id) => (wo().ex[L.parse(woKey()).getDay()] || []).find((x) => x.id === id);
+
+// «Semana»: grupos musculares trabajados según los ejercicios marcados como hechos en «Entreno».
+function musclesHtml(k) {
+  const w = db.workout;
+  if (!w || !w.log || !Object.keys(w.log).length) return '';
+  if (!mqData) loadMq().then((r) => { if (r && view === 'semana') render(); });
+  const mg = L.muscleWeek(w, k, mqData && mqData.by);
+  if (!mg.length) return '<p class="mut" style="margin:10px 0 0">Esta semana aún no has marcado ejercicios en «Entreno».</p>';
+  return `<p style="margin:12px 0 2px;font-size:13px;font-weight:600">Músculos trabajados</p>
+    ${mg.map((x) => `<div class="row between hrow"><span>${x.g}</span><span class="mut">${x.n} ${x.n === 1 ? 'ejercicio' : 'ejercicios'} · ${x.s} series</span></div>`).join('')}`;
+}
 
 /* --- Comida con IA --- */
 $('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });

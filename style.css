@@ -115,6 +115,8 @@ video{width:100%;border-radius:12px;margin-top:8px;background:#000}
 .exin label{margin:10px 0 4px;font-size:12px}
 .exedit{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 44px;gap:6px;margin-top:8px}
 .btn[disabled]{opacity:.35;cursor:default}
+.exmq{margin:4px 0 6px}
+.exmq select{height:40px;font-size:13px;color:var(--mut)}
 .exhist{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
 .hrow{font-size:13px;margin-top:4px}
 /* Recordatorios */

@@ -84,6 +84,48 @@
     return best;
   }
 
+  /* ---------- Máquinas del gimnasio (datos/maquinas.json) y grupos musculares ---------- */
+  // Grupos en orden de prioridad: el primero que aparezca gana («prensa de hombros» → Hombros; «curl femoral» → Piernas).
+  const MGROUPS = [
+    ['Abdominales', ['abdom', 'crunch', 'planch', 'oblicu']],
+    ['Lumbares', ['lumba', 'hiper']],
+    ['Glúteos', ['glute', 'hip', 'abduc', 'aduct', 'patada']],
+    ['Hombros', ['hombr', 'delto', 'later', 'militar']],
+    ['Pecho', ['pech', 'pector', 'apertur', 'contractor']],
+    ['Espalda', ['espal', 'dorsa', 'remo', 'jalon', 'domin', 'trape']],
+    ['Tríceps', ['tricep', 'fondo', 'frances']],
+    ['Piernas', ['piern', 'cuadr', 'isqui', 'femor', 'gemel', 'sentadill', 'prensa', 'zancad', 'hack', 'infer']],
+    ['Bíceps', ['bicep', 'curl', 'martillo']],
+    ['Cardio', ['cardio', 'cinta', 'correr', 'bici', 'climb', 'escalad', 'eliptic', 'remoerg']],
+    ['Estiramientos', ['estir', 'movilid', 'yoga']],
+  ];
+  const MGNAMES = MGROUPS.map((g) => g[0]);
+  const words = (t) => norm(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  // Todos los grupos que nombra un texto (p. ej. la rutina «pecho (5), tríceps (2), abdominales (2)»).
+  function groupsIn(t) {
+    const ws = words(t);
+    return MGROUPS.filter(([, kws]) => ws.some((w) => kws.some((k) => w.startsWith(k)))).map((g) => g[0]);
+  }
+  // Grupo de un ejercicio: por su máquina (músculo principal y categoría) y, si no, por su nombre. null = sin grupo.
+  function exGroup(name, m) {
+    return (m && groupsIn(`${m.principal || ''} ${m.cat || ''}`)[0]) || groupsIn(name)[0] || null;
+  }
+  // Músculos trabajados en la semana de `k`: ejercicios hechos y series por grupo, en el orden de MGROUPS («Otros» al final).
+  function muscleWeek(w, k, mq) {
+    const ws = weekStart(parse(k)), byId = {}, acc = {};
+    for (const list of Object.values((w && w.ex) || {})) for (const x of list) byId[x.id] = x;
+    for (let i = 0; i < 7; i++) {
+      const day = ((w && w.log) || {})[iso(addDays(ws, i))] || {};
+      for (const [id, e] of Object.entries(day)) {
+        const x = byId[id], m = x && x.mq && mq ? mq[x.mq] : null;
+        const g = exGroup(x ? x.name : e.n, m) || 'Otros';
+        acc[g] = acc[g] || { g, n: 0, s: 0 };
+        acc[g].n++; acc[g].s += e.s || 0;
+      }
+    }
+    return Object.values(acc).sort((a, b) => (MGNAMES.indexOf(a.g) + 1 || 99) - (MGNAMES.indexOf(b.g) + 1 || 99));
+  }
+
   // Presupuesto de la semana de `todayKey` y objetivo de hoy tras repartir lo gastado.
   function plan(db, todayKey) {
     const s = db.settings;
@@ -270,6 +312,6 @@
     return lines.join('\r\n') + '\r\n';
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek, parseReps, cleanSet, fmtSet, exHistory, exBest };
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek, parseReps, cleanSet, fmtSet, exHistory, exBest, MGNAMES, groupsIn, exGroup, muscleWeek };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

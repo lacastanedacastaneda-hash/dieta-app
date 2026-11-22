@@ -1,6 +1,6 @@
 // Service worker mínimo: guarda la app para que abra rápido y sin conexión (las estimaciones de IA sí necesitan Internet).
-const CACHE = 'mi-comida-v17';
-const FILES = ['./', 'index.html', 'style.css', 'logic.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'mi-comida-v18';
+const FILES = ['./', 'index.html', 'style.css', 'logic.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'datos/maquinas.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
