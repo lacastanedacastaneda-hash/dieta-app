@@ -82,3 +82,16 @@ video{width:100%;border-radius:12px;margin-top:8px;background:#000}
 .dot.cambio,.dot.salto{background:var(--orange)}
 .dot.fut{background:transparent;border:1.5px solid #C9C4B8}
 .rl{margin-top:10px;font-size:14px}
+/* Compra */
+.shop{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px}
+.shop b{font-size:15px}
+.shop.got{opacity:.55}
+.shop.got > .row b{text-decoration:line-through}
+.shop.have{font-size:14px;color:var(--mut)}
+.chk{width:36px;height:36px;flex:none;border-radius:50%;border:1.5px solid #B9B4A8;background:#fff;color:transparent;font-size:18px;font-weight:700;cursor:pointer}
+.chk.on{background:var(--green);border-color:var(--green);color:#fff}
+.prow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:8px;font-size:13px}
+.prow b{font-size:14px;white-space:nowrap}
+.btn.sq{width:44px;padding:0;font-size:20px}
+.qty{min-width:28px;text-align:center;font-weight:700}
+.picker{border-top:1px solid var(--line);margin-top:10px;padding-top:2px}

@@ -6,6 +6,7 @@ const DEF = {
   weights: {},
   products: {},
   plan: null, // plan de comidas importado (L.readPlan); planSel en settings dice qué semana toca
+  shop: { map: {}, weeks: {} }, // compra: map = ingrediente → producto de Mercadona (id); weeks[viernes] = {have, got, qty}
 };
 let db = load();
 let view = 'hoy';
@@ -213,7 +214,7 @@ function viewAjustes() {
 }
 
 function render() {
-  $('#app').innerHTML = { hoy: viewHoy, semana: viewSemana, ajustes: viewAjustes }[view]();
+  $('#app').innerHTML = { hoy: viewHoy, semana: viewSemana, compra: viewCompra, ajustes: viewAjustes }[view]();
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === view));
 }
 
@@ -243,6 +244,21 @@ document.addEventListener('click', (ev) => {
       d.cnt[key] = Math.max(0, (d.cnt[key] || 0) + Number(el.dataset.d));
       save(); render(); break;
     }
+    case 'shopWk': { const dd = Number(el.dataset.d); shopOff = dd ? shopOff + dd : 0; shopPick = null; render(); window.scrollTo(0, 0); break; }
+    case 'shopGot': case 'shopHave': { // en el carro / lo tengo en casa (tocar otra vez lo quita)
+      const w = shopWeek(el.dataset.f), key = el.dataset.act === 'shopGot' ? 'got' : 'have', i = el.dataset.i;
+      if (w[key][i]) delete w[key][i]; else w[key][i] = true;
+      if (shopPick === i) shopPick = null;
+      save(); render(); break;
+    }
+    case 'shopQty': { const w = shopWeek(el.dataset.f), i = el.dataset.i; w.qty[i] = Math.max(1, (w.qty[i] || 1) + Number(el.dataset.d)); save(); render(); break; }
+    case 'shopPick': {
+      shopPick = shopPick === el.dataset.i ? null : el.dataset.i; render();
+      const q = $('#shopQ'); if (q) { q.focus(); renderShopRes(); }
+      break;
+    }
+    case 'shopSet': db.shop.map[el.dataset.i] = el.dataset.mid; shopPick = null; save(); render(); break;
+    case 'shopUnset': delete db.shop.map[el.dataset.i]; shopPick = null; save(); render(); break;
     case 'planDel':
       if (confirm('¿Quitar el plan de este móvil? Lo que ya has marcado en los días no se borra.')) { db.plan = null; save(); render(); }
       break;
@@ -434,10 +450,14 @@ $('#nPhoto').addEventListener('change', async (e) => {
 });
 
 /* --- Catálogo de Mercadona (datos/mercadona.json, lo actualiza GitHub Actions cada jueves) --- */
-let catalog = null;
+let catalog = null, catalogData = null, catIndex = null; // promesa, datos ya cargados y productos por id
 const eur = (n) => (n == null ? '' : n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }));
 async function loadCatalog() {
-  if (!catalog) catalog = fetch('datos/mercadona.json').then((r) => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => { catalog = null; return null; });
+  if (!catalog) {
+    catalog = fetch('datos/mercadona.json').then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((j) => { catalogData = j; catIndex = new Map(j.products.map((p) => [p.id, p])); return j; })
+      .catch(() => { catalog = null; return null; });
+  }
   return catalog;
 }
 async function renderMerc() {
@@ -501,6 +521,74 @@ $('#btnReadLabel').addEventListener('click', async () => {
     if (merc === mine) setNew(`${err.message} Puedes volver a pulsar «Leer información nutricional».`, true);
   } finally { btn.disabled = false; }
 });
+
+/* ---------- Compra: lista del viernes (sábado a viernes) desde los ingredientes del menú ---------- */
+let shopOff = 0, shopPick = null; // semanas respecto a la próxima compra; ingrediente con el buscador abierto
+const DSHORT = { lun: 'lun', mar: 'mar', mie: 'mié', jue: 'jue', vie: 'vie', sab: 'sáb', dom: 'dom' };
+const fdate = (k, o = { weekday: 'short', day: 'numeric', month: 'short' }) => L.parse(k).toLocaleDateString('es-ES', o);
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const shopEmpty = () => ({ have: {}, got: {}, qty: {} });
+// Estado de la compra del viernes `f` (se crea al tocar algo; se borran las de hace más de 2 meses).
+function shopWeek(f) {
+  const ws = db.shop.weeks;
+  for (const old of Object.keys(ws)) if (old < L.iso(L.addDays(L.parse(f), -60))) delete ws[old];
+  return ws[f] || (ws[f] = shopEmpty());
+}
+function viewCompra() {
+  if (!db.plan) return '<h1>Compra</h1><section class="card"><p class="mut" style="margin:0">Importa tu plan en Ajustes > Plan de comidas y aquí saldrá la lista de la compra del viernes.</p></section>';
+  if (!catalogData) loadCatalog().then((c) => { if (c && view === 'compra') render(); });
+  const f = L.shopFriday(todayKey(), shopOff), days = L.shopDays(f), w = db.shop.weeks[f] || shopEmpty();
+  const items = L.shopItems(db.plan, db.settings.planSel, f);
+  const prod = (name) => catIndex?.get(db.shop.map[name]);
+  const need = items.filter((it) => !w.have[it.name]), have = items.filter((it) => w.have[it.name]);
+  let total = 0, sinProd = 0;
+  for (const it of need) { const pr = prod(it.name); if (pr?.price != null) total += pr.price * (w.qty[it.name] || 1); else sinProd++; }
+  const uses = (it) => `${it.n ? `${it.n} ${it.n === 1 ? 'comida' : 'comidas'}` : ''}${it.n && it.alt ? ' + ' : ''}${it.alt ? `${it.alt} a elegir` : ''}`;
+  const row = (it) => {
+    const nm = esc(it.name), mid = db.shop.map[it.name], pr = prod(it.name), q = w.qty[it.name] || 1, got = !!w.got[it.name];
+    let prodHtml;
+    if (pr) {
+      prodHtml = `<div class="prow"><span>${esc(pr.name)} <span class="mut">· ${esc(pr.fmt)}</span></span><b>${eur(pr.price * q)}</b></div>
+        <div class="row" style="margin-top:6px"><button class="btn sq" data-act="shopQty" data-f="${f}" data-i="${nm}" data-d="-1" aria-label="Uno menos">−</button><span class="qty">${q}</span><button class="btn sq" data-act="shopQty" data-f="${f}" data-i="${nm}" data-d="1" aria-label="Uno más">+</button>
+        <button class="btn ghost" style="margin-left:auto" data-act="shopPick" data-i="${nm}">Cambiar</button></div>`;
+    } else if (mid && !catalogData) {
+      prodHtml = '<p class="mut" style="margin:6px 0 0">Cargando precio…</p>';
+    } else {
+      prodHtml = `${mid ? '<p class="hint err" style="margin:6px 0 0">El producto que elegiste ya no está en Mercadona.</p>' : ''}
+        <button class="btn" style="margin-top:6px" data-act="shopPick" data-i="${nm}">Elegir producto de Mercadona</button>`;
+    }
+    const picker = shopPick === it.name ? `<div class="picker"><label for="shopQ">Buscar en Mercadona</label>
+        <input id="shopQ" type="text" autocomplete="off" value="${nm}" data-i="${nm}"><div id="shopRes"></div>
+        ${mid ? `<button class="btn ghost" data-act="shopUnset" data-i="${nm}">Quitar producto</button>` : ''}</div>` : '';
+    return `<div class="shop ${got ? 'got' : ''}"><div class="row">
+      <button class="chk ${got ? 'on' : ''}" data-act="shopGot" data-f="${f}" data-i="${nm}" aria-label="${got ? 'Quitar del carro' : 'En el carro'}: ${nm}">✓</button>
+      <div style="flex:1"><b>${esc(cap(it.name))}</b><span class="mut" style="display:block">${uses(it)} · ${it.days.map((d) => DSHORT[d]).join(', ')}</span></div>
+      <button class="btn ghost" data-act="shopHave" data-f="${f}" data-i="${nm}">Lo tengo</button></div>${prodHtml}${picker}</div>`;
+  };
+  const when = shopOff === 0 ? (f === todayKey() ? 'Compra de hoy' : 'Próxima compra') : shopOff < 0 ? 'Compra anterior' : 'Compra siguiente';
+  return `<p class="sub">${when} · viernes ${fdate(f, { day: 'numeric', month: 'long' })}</p><h1>Compra</h1>
+  <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="shopWk" data-d="-1">‹ Anterior</button>
+    ${shopOff ? '<button class="btn ghost" data-act="shopWk" data-d="0">Próxima</button>' : ''}
+    <button class="btn ghost" style="margin-left:auto" data-act="shopWk" data-d="1">Siguiente ›</button></div>
+  <section class="card"><div class="row between"><h2>Total estimado</h2><b class="big-pct">${eur(total)}</b></div>
+    <p class="mut" style="margin:4px 0 0">Menú del ${fdate(days[0])} al ${fdate(days[6])} · ${need.length} ingredientes${sinProd ? ` · ${sinProd} sin producto elegido` : ''}${catalogData ? ` · precios de Mercadona del ${new Date(catalogData.updated).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}` : ''}.</p>
+    <p class="mut" style="margin:4px 0 0">El plan no da gramos: cada línea dice en cuántas comidas sale. Ajusta tú cuántos envases compras.</p></section>
+  ${need.map(row).join('')}
+  ${have.length ? `<h2 style="margin:18px 0 0">Lo tienes en casa</h2>${have.map((it) => `<div class="shop have row"><span style="flex:1">${esc(cap(it.name))}</span>
+    <button class="btn ghost" data-act="shopHave" data-f="${f}" data-i="${esc(it.name)}">Necesito</button></div>`).join('')}` : ''}`;
+}
+// Resultados del buscador de un ingrediente (sin repintar toda la pantalla, para no perder el teclado).
+function renderShopRes() {
+  const inp = $('#shopQ'), box = $('#shopRes'); if (!inp || !box) return;
+  if (!catalogData) { box.innerHTML = '<p class="mut">Cargando catálogo…</p>'; loadCatalog().then((c) => { if (c) renderShopRes(); }); return; }
+  const q = inp.value.trim();
+  let r = L.search(catalogData.products, q, 20);
+  if (!r.length && q.includes(' ')) r = L.search(catalogData.products, q.split(/\s+/).sort((a, b) => b.length - a.length)[0], 20); // prueba con la palabra más larga
+  box.innerHTML = r.length
+    ? r.map((p) => `<button type="button" class="meal pick" data-act="shopSet" data-i="${esc(inp.dataset.i)}" data-mid="${esc(p.id)}"><span class="n">${esc(p.name)}<span class="mut" style="font-weight:400;display:block">${esc(p.fmt)} · ${eur(p.price)}</span></span></button>`).join('')
+    : '<p class="mut">No hay productos con ese nombre. Prueba con otra palabra.</p>';
+}
+document.addEventListener('input', (ev) => { if (ev.target.id === 'shopQ') renderShopRes(); });
 
 /* --- Comida con IA --- */
 $('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });

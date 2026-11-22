@@ -136,6 +136,41 @@
     return { key: last, kg: db.weights[last], days: Math.round((parse(k) - parse(last)) / 864e5) };
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight };
+  /* ---------- Lista de la compra (se compra el viernes para los 7 días siguientes: sábado a viernes) ---------- */
+  // Viernes de compra de la fecha `k` (`off` semanas antes o después): el mismo día si es viernes, si no, el siguiente.
+  function shopFriday(k, off = 0) {
+    const d = parse(k);
+    return iso(addDays(d, ((5 - d.getDay() + 7) % 7) + 7 * off));
+  }
+  const shopDays = (f) => Array.from({ length: 7 }, (_, i) => iso(addDays(parse(f), i + 1)));
+
+  // «Pescado, pollo o pavo» → ['pescado', 'pollo', 'pavo']. Un solo elemento si no hay alternativas.
+  const splitTag = (t) => String(t).toLowerCase().split(/\s*,\s*|\s+y\/o\s+|\s+o\s+/).map((x) => x.trim()).filter(Boolean);
+
+  // Ingredientes del menú de los días de la compra del viernes `f`.
+  // n = comidas en las que va seguro; alt = comidas en las que es una de varias opciones; days = días (lun, mar…).
+  function shopItems(p, sel, f) {
+    const items = new Map();
+    for (const k of shopDays(f)) {
+      const dk = PDAYS[parse(k).getDay()];
+      for (const m of planDay(p, sel, k).meals) {
+        const seen = new Set(); // un ingrediente cuenta una vez por comida
+        for (const tag of m.tags) {
+          const parts = splitTag(tag);
+          for (const name of parts) {
+            if (seen.has(name)) continue;
+            seen.add(name);
+            const it = items.get(name) || { name, n: 0, alt: 0, days: [] };
+            if (parts.length > 1) it.alt++; else it.n++;
+            if (!it.days.includes(dk)) it.days.push(dk);
+            items.set(name, it);
+          }
+        }
+      }
+    }
+    return [...items.values()].sort((a, b) => b.n + b.alt - (a.n + a.alt) || a.name.localeCompare(b.name, 'es'));
+  }
+
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);
