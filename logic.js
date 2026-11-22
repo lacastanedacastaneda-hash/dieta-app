@@ -64,22 +64,46 @@
     const w = Number(String(kg ?? '').replace(',', '.'));
     return { n: String(n || ''), s: series, r: reps, kg: w > 0 && w < 1000 ? Math.round(w * 100) / 100 : 0 };
   }
-  // «3 × 10 · 40 kg», «10/8/6 · 40 kg», «3 × 15 · sin peso».
+  // Series una a una, [{r, kg}]. `k` (peso de cada serie) solo existe si los pesos cambian; si no, todas llevan `kg`.
+  function setRows(e) {
+    if (!e) return [];
+    return Array.from({ length: e.s }, (_, i) => ({ r: e.r.length > 1 ? e.r[i] : e.r[0], kg: Array.isArray(e.k) ? e.k[i] || 0 : e.kg || 0 }));
+  }
+  // Registro a partir de las filas escritas, [{r: '10', kg: '40'}]. Las filas sin repeticiones no cuentan;
+  // null si una repetición no es un número entero o no queda ninguna serie. `kg` = el mayor peso.
+  function cleanRows(n, rows) {
+    const out = [];
+    for (const x of rows || []) {
+      const t = String(x.r ?? '').trim();
+      if (!t) continue;
+      const r = Number(t);
+      if (!Number.isInteger(r) || r <= 0 || r >= 1000) return null;
+      const w = Number(String(x.kg ?? '').replace(',', '.'));
+      out.push({ r, kg: w > 0 && w < 1000 ? Math.round(w * 100) / 100 : 0 });
+    }
+    if (!out.length || out.length > 50) return null;
+    const r = out.map((x) => x.r), k = out.map((x) => x.kg);
+    const e = { n: String(n || ''), s: out.length, r: r.every((v) => v === r[0]) ? [r[0]] : r, kg: Math.max(...k) };
+    if (!k.every((v) => v === k[0])) e.k = k;
+    return e;
+  }
+  const kgS = (kg) => String(kg).replace('.', ',');
+  // «3 × 10 · 40 kg», «10/8/6 · 40 kg», «3 × 15 · sin peso»; con pesos distintos: «12 × 30 · 10 × 35 · 8 × 40 kg».
   function fmtSet(e) {
     if (!e) return '';
+    if (Array.isArray(e.k)) return setRows(e).map((x) => (x.kg ? `${x.r} × ${kgS(x.kg)}` : `${x.r} sin peso`)).join(' · ') + ' kg';
     const reps = e.r.length > 1 ? e.r.join('/') : `${e.s} × ${e.r[0]}`;
-    return `${reps} · ${e.kg ? `${String(e.kg).replace('.', ',')} kg` : 'sin peso'}`;
+    return `${reps} · ${e.kg ? `${kgS(e.kg)} kg` : 'sin peso'}`;
   }
   // Sesiones de un ejercicio, de la más reciente a la más antigua (antes de `before` si se indica).
   function exHistory(log, id, before) {
     return Object.keys(log || {}).filter((k) => log[k][id] && (!before || k < before)).sort().reverse().map((k) => ({ key: k, e: log[k][id] }));
   }
-  // Mejor marca: el mayor peso (y, a igual peso, más repeticiones en una serie).
+  // Mejor marca: la serie con más peso (y, a igual peso, con más repeticiones).
   function exBest(log, id) {
-    let best = null;
+    let best = null, bk = -1, br = -1;
     for (const h of exHistory(log, id)) {
-      const top = Math.max(...h.e.r);
-      if (!best || h.e.kg > best.e.kg || (h.e.kg === best.e.kg && top > Math.max(...best.e.r))) best = h;
+      for (const x of setRows(h.e)) if (x.kg > bk || (x.kg === bk && x.r > br)) { best = h; bk = x.kg; br = x.r; }
     }
     return best;
   }
@@ -312,6 +336,6 @@
     return lines.join('\r\n') + '\r\n';
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek, parseReps, cleanSet, fmtSet, exHistory, exBest, MGNAMES, groupsIn, exGroup, muscleWeek };
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek, parseReps, cleanSet, setRows, cleanRows, fmtSet, exHistory, exBest, MGNAMES, groupsIn, exGroup, muscleWeek };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

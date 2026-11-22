@@ -301,7 +301,7 @@ function render() {
 /* ---------- Acciones ---------- */
 document.addEventListener('click', (ev) => {
   const nav = ev.target.closest('[data-nav]');
-  if (nav) { view = nav.dataset.nav; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woBig = null; } render(); window.scrollTo(0, 0); return; }
+  if (nav) { view = nav.dataset.nav; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woRows = {}; } render(); window.scrollTo(0, 0); return; }
   const el = ev.target.closest('[data-act]');
   if (!el) return;
   const k = todayKey();
@@ -349,15 +349,21 @@ document.addEventListener('click', (ev) => {
     case 'shopSet': db.shop.map[el.dataset.i] = el.dataset.mid; shopPick = null; save(); render(); break;
     case 'shopUnset': delete db.shop.map[el.dataset.i]; shopPick = null; save(); render(); break;
     // --- Entreno ---
-    case 'woDay': { const dd = Number(el.dataset.d); woOff = dd ? Math.min(0, woOff + dd) : 0; woEdit = false; woOpen = null; render(); window.scrollTo(0, 0); break; }
+    case 'woDay': { const dd = Number(el.dataset.d); woOff = dd ? Math.min(0, woOff + dd) : 0; woEdit = false; woOpen = null; woRows = {}; render(); window.scrollTo(0, 0); break; }
     case 'woEdit': woEdit = !woEdit; render(); break;
     case 'woHist': woOpen = woOpen === el.dataset.id ? null : el.dataset.id; render(); break;
-    case 'woImg': woBig = woBig === el.dataset.id ? null : el.dataset.id; render(); break;
+    case 'woRowAdd': case 'woRowDel': { // añadir una serie (copia la última) o quitar una
+      const x = woFind(el.dataset.id); if (!x) break;
+      const rows = woRaw(x);
+      if (el.dataset.act === 'woRowAdd') rows.push({ ...(rows[rows.length - 1] || { r: '10', kg: '' }) });
+      else if (rows.length > 1) rows.splice(Number(el.dataset.i), 1);
+      woRows[x.id] = rows; woSaveDone(x); render(); break;
+    }
     case 'woDone': {
       const x = woFind(el.dataset.id); if (!x) break;
-      const e = woRead(x);
-      if (!e) { alert('Escribe las repeticiones con números, por ejemplo 10, o 10, 8, 6 si cada serie es distinta.'); break; }
-      const wk = woKey(), w = wo(); (w.log[wk] = w.log[wk] || {})[x.id] = e;
+      const e = L.cleanRows(x.name, woRaw(x));
+      if (!e) { alert('Escribe las repeticiones de cada serie con un número entero, por ejemplo 10.'); break; }
+      const wk = woKey(), w = wo(); (w.log[wk] = w.log[wk] || {})[x.id] = e; delete woRows[x.id];
       // Al apuntar el entreno, la tarjeta del gimnasio (o la de la sesión ligera) se marca sola.
       const d = dayRW(wk), rt = L.routineOf(db.settings)[L.parse(wk).getDay()];
       if (rt.t === 'ligera') d.light = d.light || 'yes'; else d.gym = d.gym || 'yes';
@@ -366,6 +372,7 @@ document.addEventListener('click', (ev) => {
     case 'woUndo': {
       const wk = woKey(), w = wo();
       if (w.log[wk]) { delete w.log[wk][el.dataset.id]; if (!Object.keys(w.log[wk]).length) delete w.log[wk]; }
+      delete woRows[el.dataset.id];
       save(); render(); break;
     }
     case 'woAdd': {
@@ -453,9 +460,9 @@ document.addEventListener('change', async (ev) => {
     const id = ev.target.id.slice(5), mq = ev.target.value;
     for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) { if (mq) x.mq = mq; else delete x.mq; }
     save();
-  } else if (/^wo_[srk]_/.test(ev.target.id)) { // corregir un ejercicio ya hecho
-    const id = ev.target.id.slice(5), wk = woKey(), x = woFind(id), w = wo();
-    if (x && w.log[wk] && w.log[wk][id]) { const e = woRead(x); if (e) { w.log[wk][id] = e; save(); } }
+  } else if (/^wo_[rk]_/.test(ev.target.id)) { // una serie: se recuerda lo escrito y, si ya estaba hecho, se corrige
+    const x = woFind(ev.target.id.slice(5).split('_')[0]);
+    if (x) { woRows[x.id] = woRaw(x); woSaveDone(x); }
   } else if (ev.target.id.startsWith('swPor_')) { // «Lo cambié por» (se guarda al salir del campo, sin repintar)
     const d = dayRW(todayKey()), m = ev.target.id.slice(6);
     d.swap = d.swap || {}; (d.swap[m] = d.swap[m] || {}).por = ev.target.value.trim(); save();
@@ -752,7 +759,8 @@ function renderShopRes() {
 document.addEventListener('input', (ev) => { if (ev.target.id === 'shopQ') renderShopRes(); });
 
 /* ---------- Entreno: tus ejercicios por día de la semana, con series, repeticiones y peso ---------- */
-let woOff = 0, woEdit = false, woOpen = null, woBig = null; // días respecto a hoy (≤ 0); editando ejercicios; ejercicio con el progreso abierto; ejercicio con la foto grande
+let woOff = 0, woEdit = false, woOpen = null, woRows = {}, woShown = {}; // días respecto a hoy (≤ 0); editando ejercicios; ejercicio con el progreso abierto;
+// series escritas y aún sin guardar por ejercicio; cuántas filas de series se pintaron por ejercicio
 const wo = () => { db.workout = db.workout || {}; db.workout.ex = db.workout.ex || {}; db.workout.log = db.workout.log || {}; return db.workout; };
 const woKey = () => L.iso(L.addDays(L.parse(todayKey()), woOff));
 const woId = () => `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -815,18 +823,22 @@ function viewEntreno() {
       return `<div class="exhist">${best ? `<p style="margin:0 0 6px;font-size:13px"><b>Mejor marca:</b> ${L.fmtSet(best.e)} <span class="mut">(${fdate(best.key)})</span></p>` : ''}
         ${all.length ? all.slice(0, 8).map((h) => `<div class="row between hrow"><span class="mut">${fdate(h.key)}</span><span>${L.fmtSet(h.e)}</span></div>`).join('') : '<p class="mut" style="margin:0">Aún no hay sesiones.</p>'}</div>`;
     })() : '';
-    const pic = m && m.img ? `<button class="exthumb" data-act="woImg" data-id="${x.id}" aria-label="${woBig === x.id ? 'Ocultar' : 'Ver'} la foto de la máquina"><img src="${esc(m.img)}" alt="" loading="lazy"></button>` : '';
+    // Filas de series: lo escrito sin guardar; si no, lo de hoy o lo de la última vez; si no, 3 series de 10.
+    const noKg = m && m.carga === 'sin carga';
+    const rows = woRows[x.id] || (base ? L.setRows(base).map((y) => ({ r: String(y.r), kg: kgTxt(y.kg) })) : [1, 2, 3].map(() => ({ r: '10', kg: '' })));
+    woShown[x.id] = rows.length;
+    const srows = rows.map((y, i) => `<div class="srow${noKg ? ' nokg' : ''}"><span class="mut">${i + 1}.ª</span>
+        <input id="wo_r_${x.id}_${i}" type="text" inputmode="numeric" autocomplete="off" value="${esc(y.r)}" aria-label="Repeticiones de la serie ${i + 1}">
+        ${noKg ? '' : `<input id="wo_k_${x.id}_${i}" type="text" inputmode="decimal" autocomplete="off" placeholder="sin peso" value="${esc(y.kg)}" aria-label="Kg de la serie ${i + 1}">`}
+        <button class="del" data-act="woRowDel" data-id="${x.id}" data-i="${i}" aria-label="Quitar la serie ${i + 1}" ${rows.length > 1 ? '' : 'disabled'}>✕</button></div>`).join('');
     return `<div class="ex ${e ? 'done' : ''}">
-      <div class="exhead">${pic}<div style="flex:1;min-width:0">
+      ${m && m.img ? `<div class="exphoto"><img src="${esc(m.img)}" alt="${esc(m.nombre)}" loading="lazy"></div>` : ''}
       <div class="row between"><b>${esc(x.name)}</b>${e ? '<span class="ok">✓ Hecho</span>' : ''}</div>
       ${m ? `<p class="mut" style="margin:2px 0 0">${esc(m.marca)} ${esc(m.modelo || '')}${musc ? ` · ${esc(musc)}` : ''}</p>` : ''}
-      <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p></div></div>
-      ${woBig === x.id && m && m.img ? `<button class="exbig" data-act="woImg" data-id="${x.id}" aria-label="Ocultar la foto"><img src="${esc(m.img)}" alt="${esc(m.nombre)}"></button>` : ''}
-      <div class="exin">
-        <div><label for="wo_s_${x.id}">Series</label><input id="wo_s_${x.id}" type="number" inputmode="numeric" min="1" value="${base ? base.s : 3}"></div>
-        <div><label for="wo_r_${x.id}">Repeticiones</label><input id="wo_r_${x.id}" type="text" inputmode="numeric" autocomplete="off" value="${base ? base.r.join(', ') : '10'}"></div>
-        <div><label for="wo_k_${x.id}">Kg</label><input id="wo_k_${x.id}" type="text" inputmode="decimal" autocomplete="off" placeholder="sin peso" value="${base ? kgTxt(base.kg) : ''}"></div>
-      </div>
+      <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p>
+      <div class="srow${noKg ? ' nokg' : ''} shead"><span></span><span>Repeticiones</span>${noKg ? '' : '<span>Kg</span>'}<span></span></div>
+      ${srows}
+      <button class="link" data-act="woRowAdd" data-id="${x.id}">+ Serie</button>
       ${m && MQLOAD[m.carga] ? `<p class="mut" style="margin:4px 0 0">${MQLOAD[m.carga]}</p>` : ''}
       <div class="row" style="margin-top:8px">${e ? `<button class="btn ghost" data-act="woUndo" data-id="${x.id}">Deshacer</button>` : `<button class="btn primary" data-act="woDone" data-id="${x.id}">Hecho</button>`}
         <button class="btn ghost" style="margin-left:auto" data-act="woHist" data-id="${x.id}">${woOpen === x.id ? 'Ocultar progreso' : 'Progreso'}</button></div>
@@ -834,11 +846,23 @@ function viewEntreno() {
   }).join('');
   const done = list.filter((x) => dayLog[x.id]).length;
   return `${head}<div class="row between" style="margin:16px 0 0"><h2>${done} de ${list.length} hechos</h2><button class="btn ghost" data-act="woEdit">Editar ejercicios</button></div>
-    <p class="mut" style="margin:4px 0 0">Si repites lo de la última vez, pulsa «Hecho». Repeticiones distintas por serie: «10, 8, 6».</p>
+    <p class="mut" style="margin:4px 0 0">Cada fila es una serie, con sus repeticiones y su peso. Si repites lo de la última vez, pulsa «Hecho».</p>
     ${cards}`;
 }
-// Guarda un ejercicio con lo que hay en sus casillas; null si las repeticiones no se entienden.
-function woRead(x) { return L.cleanSet(x.name, $('#wo_s_' + x.id).value, $('#wo_r_' + x.id).value, $('#wo_k_' + x.id).value); }
+// Lo que hay escrito en las filas de series de un ejercicio, [{r, kg}] como texto.
+function woRaw(x) {
+  return Array.from({ length: woShown[x.id] || 0 }, (_, i) => {
+    const k = $(`#wo_k_${x.id}_${i}`);
+    return { r: $(`#wo_r_${x.id}_${i}`).value, kg: k ? k.value : '' };
+  });
+}
+// Si el ejercicio ya estaba hecho ese día, guarda los cambios de sus series (si se entienden).
+function woSaveDone(x) {
+  const wk = woKey(), w = wo();
+  if (!w.log[wk] || !w.log[wk][x.id]) return;
+  const e = L.cleanRows(x.name, woRows[x.id] || woRaw(x));
+  if (e) { w.log[wk][x.id] = e; save(); }
+}
 const woFind = (id) => (wo().ex[L.parse(woKey()).getDay()] || []).find((x) => x.id === id);
 
 // «Semana»: grupos musculares trabajados según los ejercicios marcados como hechos en «Entreno».
