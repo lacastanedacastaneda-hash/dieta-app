@@ -1,7 +1,7 @@
 /* Mi comida — fase 1. Todo se guarda en el móvil (localStorage). */
 const KEY = 'dieta.v1';
 const DEF = {
-  settings: { target: 2150, p: 140, c: 220, f: 65, gymKcal: 350, gymDays: [1, 2, 3, 4], floor: 1500, apiKey: '', model: 'gemini-flash-latest', orKey: '', orModel: 'google/gemma-4-31b-it:free', startWeight: 100, goalWeight: 85 },
+  settings: { target: 2150, p: 140, c: 220, f: 65, gymKcal: 350, gymDays: [1, 2, 3, 4], floor: 1500, apiKey: '', model: 'gemini-flash-latest', orKey: '', orModel: 'google/gemma-4-31b-it:free', rem: { desayuno: '08:45', almuerzo: '13:30', cena: '19:15', gym: '18:15', compra: '15:30' }, startWeight: 100, goalWeight: 85 },
   days: {},
   weights: {},
   products: {},
@@ -58,8 +58,16 @@ function viewHoyPlan() {
   const k = todayKey(), now = new Date(), s = db.settings, d = L.dayRO(db, k);
   const pd = L.planDay(db.plan, s.planSel, k), st = d.plan || {}, cnt = d.cnt || {};
   const sched = s.gymDays.includes(now.getDay());
+  // Avisos al abrir la app: comidas cuya hora ya pasó sin marcar, y la compra del viernes.
+  const r = remOf(), mins = (hhmm) => { const [h, mm] = hhmm.split(':').map(Number); return h * 60 + mm; };
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const due = new Set(pd.meals.filter((m) => !st[m.key] && nowMin >= mins(r[m.key])).map((m) => m.key));
+  const dueNames = pd.meals.filter((m) => due.has(m.key)).map((m) => m.meal.toLowerCase());
+  const yList = (a) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} y ${a[a.length - 1]}` : a[0]);
+  const avisos = (dueNames.length ? `<section class="card due"><h2>Te falta marcar: ${yList(dueNames)}</h2><p class="mut" style="margin:4px 0 0">Pulsa «Seguida», «Cambiada» o «Me la salté» en el menú.</p></section>` : '')
+    + (now.getDay() === 5 && nowMin >= mins(r.compra) ? `<section class="card due row between"><div><h2>Hoy toca la compra</h2><p class="mut" style="margin:4px 0 0">Tu lista está en «Compra».</p></div><button class="btn primary" data-nav="compra">Ver lista</button></section>` : '');
   const meals = pd.meals.map((m) => `
-    <div class="pmeal ${st[m.key] || ''}">
+    <div class="pmeal ${st[m.key] || ''} ${due.has(m.key) ? 'due' : ''}">
       <div class="row between"><h2>${m.meal}</h2>${m.libre ? '<span class="pill">Libre, con moderación</span>' : m.legumbres ? '<span class="pill">Legumbres</span>' : ''}</div>
       <p class="ptext">${esc(m.text)}</p>
       ${db.plan.racionMaxG && m.key !== 'desayuno' ? `<p class="mut" style="margin:0 0 8px">Carne o pescado: hasta ${n0(db.plan.racionMaxG)} g</p>` : ''}
@@ -72,6 +80,7 @@ function viewHoyPlan() {
   }).join('');
   const t = L.tot(db, k), list = entriesHtml(d);
   return `<p class="sub">${DOWFULL[now.getDay()]} · ${esc(pd.weekName)}${sched ? ' · día de gimnasio' : ''}</p><h1>Hoy</h1>
+  ${avisos}
   <section class="card"><h2>Menú de hoy</h2>${meals}</section>
   <section class="card"><h2>Reglas del día</h2>${rules}</section>
   ${gymCard(d, now)}
@@ -187,11 +196,39 @@ function planCard() {
     <div class="row">${imp}<button class="btn ghost" data-act="planDel">Quitar plan</button></div></section>`;
 }
 
+// Ajustes > Recordatorios: horas y archivo para el calendario del móvil.
+const REM = [['desayuno', 'Desayuno'], ['almuerzo', 'Comida'], ['cena', 'Cena'], ['gym', 'Gimnasio'], ['compra', 'Compra (viernes)']];
+const remOf = () => ({ ...DEF.settings.rem, ...db.settings.rem });
+function remCard() {
+  const r = remOf(), days = db.settings.gymDays.map((d) => DOWFULL[d]).join(', ');
+  return `<form id="remForm" class="card"><h2>Recordatorios</h2>
+    <div class="two">${REM.map(([k, lab]) => `<div><label for="r_${k}">${lab}</label><input id="r_${k}" type="time" value="${esc(r[k])}"></div>`).join('')}</div>
+    <p class="mut">Gimnasio: ${esc(days || 'ningún día')}. Las horas también sirven para los avisos de «Hoy» al abrir la app.</p>
+    <button class="btn" type="submit">Guardar horas</button>
+    <button class="btn primary big" type="button" data-act="ics">Descargar recordatorios para el calendario</button>
+    <details class="how"><summary>Cómo añadirlos a Google Calendar</summary>
+      <p class="mut">La app de Google Calendar del móvil no importa este archivo, y al importarlo Google usa el aviso por defecto del calendario. Desde un ordenador:</p>
+      <ol class="mut"><li>Entra en calendar.google.com, crea un calendario nuevo llamado «Mi comida».</li>
+      <li>En su configuración, pon como notificación por defecto «0 minutos antes».</li>
+      <li>Configuración > Importar y exportar: elige el archivo y el calendario «Mi comida».</li></ol>
+      <p class="mut">Si tu calendario del móvil abre el archivo directamente, también vale. Para cambiar las horas, borra el calendario «Mi comida» y vuelve a importarlo.</p></details>
+  </form>`;
+}
+function downloadIcs() {
+  const ics = L.icsReminders(remOf(), db.settings.gymDays, todayKey(), new Date());
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+  a.download = 'mi-comida-recordatorios.ics';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function viewAjustes() {
   const s = db.settings;
   const num = (id, lab, v, step = 1) => `<div><label for="${id}">${lab}</label><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${v}"></div>`;
   return `<h1>Ajustes</h1>
   ${planCard()}
+  ${remCard()}
   <form id="setForm" class="card">
     <h2>Objetivos diarios</h2>
     <div class="two">${num('sTarget', 'Calorías base', s.target)}${num('sFloor', 'Mínimo diario', s.floor)}${num('sP', 'Proteína g', s.p)}${num('sC', 'Carbohidratos g', s.c)}${num('sF', 'Grasa g', s.f)}${num('sGym', 'kcal por sesión', s.gymKcal)}</div>
@@ -230,6 +267,7 @@ document.addEventListener('click', (ev) => {
     case 'del': { const d = dayRW(k); d.entries = d.entries.filter((e) => String(e.id) !== el.dataset.id); save(); render(); break; }
     case 'add': openDialog(); break;
     case 'export': exportData(); break;
+    case 'ics': downloadIcs(); break;
     case 'pm': { // comida del plan: seguida / cambiada / me la salté (pulsar otra vez la quita)
       const d = dayRW(k), m = el.dataset.m, v = el.dataset.v;
       d.plan = d.plan || {};
@@ -271,6 +309,11 @@ document.addEventListener('submit', (ev) => {
     const g = (id) => Number($('#' + id).value);
     Object.assign(db.settings, { target: g('sTarget'), floor: g('sFloor'), p: g('sP'), c: g('sC'), f: g('sF'), gymKcal: g('sGym'), startWeight: g('sW0'), goalWeight: g('sW1'), apiKey: $('#sKey').value.trim(), model: $('#sModel').value.trim() || DEF.settings.model, orKey: $('#sOrKey').value.trim(), orModel: $('#sOrModel').value.trim() || DEF.settings.orModel });
     save(); render();
+  } else if (ev.target.id === 'remForm') {
+    ev.preventDefault();
+    const r = remOf();
+    for (const [k] of REM) { const v = $('#r_' + k).value; if (/^\d{2}:\d{2}$/.test(v)) r[k] = v; }
+    db.settings.rem = r; save(); render(); alert('Horas guardadas. Si ya importaste el calendario, descarga el archivo otra vez e impórtalo de nuevo.');
   } else if (ev.target.id === 'wForm') {
     ev.preventDefault();
     const v = Number($('#wVal').value);

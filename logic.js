@@ -171,6 +171,33 @@
     return [...items.values()].sort((a, b) => b.n + b.alt - (a.n + a.alt) || a.name.localeCompare(b.name, 'es'));
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems };
+  /* ---------- Recordatorios: archivo de calendario (.ics) con eventos que se repiten y alarma a la hora ---------- */
+  // rem = {desayuno, almuerzo, cena, gym, compra} en 'HH:MM'; gymDays = días de getDay(); start = 'YYYY-MM-DD'; stamp = Date.
+  // Horas «flotantes» (sin zona): el calendario las toma en la hora local del móvil, también tras el cambio de hora.
+  const RRDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  function icsReminders(rem, gymDays, start, stamp) {
+    const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+    const dt = (hhmm) => `${start.replace(/-/g, '')}T${hhmm.replace(':', '')}00`;
+    const utc = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const ev = (id, title, hhmm, rrule, desc) => (/^\d{2}:\d{2}$/.test(hhmm || '') ? [
+      'BEGIN:VEVENT', `UID:mi-comida-${id}@recordatorios`, `DTSTAMP:${utc}`, `DTSTART:${dt(hhmm)}`, 'DURATION:PT10M',
+      `RRULE:${rrule}`, `SUMMARY:${esc(title)}`, `DESCRIPTION:${esc(desc)}`, 'TRANSP:TRANSPARENT',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(title)}`, 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT',
+    ] : []);
+    const meal = 'Abre Mi comida y marca si has seguido el menú.';
+    const gd = [...new Set(gymDays)].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => RRDAY[d]);
+    const lines = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Mi comida//Recordatorios//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Mi comida',
+      ...ev('desayuno', 'Desayuno', rem.desayuno, 'FREQ=DAILY', meal),
+      ...ev('comida', 'Comida', rem.almuerzo, 'FREQ=DAILY', meal),
+      ...ev('cena', 'Cena', rem.cena, 'FREQ=DAILY', meal),
+      ...(gd.length ? ev('gimnasio', 'Gimnasio', rem.gym, `FREQ=WEEKLY;BYDAY=${gd.join(',')}`, 'Toca gimnasio. Después, márcalo en Mi comida.') : []),
+      ...ev('compra', 'Lista de la compra', rem.compra, 'FREQ=WEEKLY;BYDAY=FR', 'Abre la pestaña Compra de Mi comida.'),
+      'END:VCALENDAR',
+    ];
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);
