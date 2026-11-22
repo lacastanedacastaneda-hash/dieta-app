@@ -102,6 +102,10 @@ video{width:100%;border-radius:12px;margin-top:8px;background:#000}
 .btn.sq{width:44px;padding:0;font-size:20px}
 .qty{min-width:28px;text-align:center;font-weight:700}
 .picker{border-top:1px solid var(--line);margin-top:10px;padding-top:2px}
+/* Rutina de gimnasio */
+.tip{margin:0 0 8px;font-size:13px;color:var(--green);background:#E6F1EC;border-radius:10px;padding:8px 10px}
+.rut{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:6px 8px;align-items:end;margin-top:4px}
+.rut label{grid-column:1/-1;margin:10px 0 0}
 /* Recordatorios */
 .card.due{border-color:var(--orange);background:#FBF1EA}
 .pmeal.due h2{color:var(--orange)}

@@ -23,6 +23,32 @@
     return 0;
   }
 
+  /* ---------- Rutina de gimnasio (se escribe en Ajustes; vive solo en el móvil) ---------- */
+  // Tipos de día: descanso; fuerza; piernas (fuerza de tren inferior: conviene no quedarse corto de hidratos); ligera (estiramientos…).
+  const RTYPES = ['descanso', 'fuerza', 'piernas', 'ligera'];
+  const isStrength = (t) => t === 'fuerza' || t === 'piernas';
+  // Rutina de los 7 días (índice = getDay()). Sin rutina guardada: fuerza los días de gimnasio y descanso el resto.
+  function routineOf(s) {
+    const r = Array.isArray(s.routine) && s.routine.length === 7 ? s.routine : null;
+    return Array.from({ length: 7 }, (_, i) => {
+      const x = (r && r[i]) || {};
+      return { t: RTYPES.includes(x.t) ? x.t : (s.gymDays || []).includes(i) ? 'fuerza' : 'descanso', txt: String(x.txt || '').trim() };
+    });
+  }
+  // Sesiones de la semana de `k`: de fuerza (day.gym) y ligeras (day.light), hechas y previstas según la rutina.
+  function gymWeek(db, k) {
+    const ws = weekStart(parse(k)), r = routineOf(db.settings);
+    const w = { fuerza: { done: 0, plan: 0 }, ligera: { done: 0, plan: 0 } };
+    for (let i = 0; i < 7; i++) {
+      const kk = iso(addDays(ws, i)), d = dayRO(db, kk), t = r[parse(kk).getDay()].t;
+      if (isStrength(t)) w.fuerza.plan++;
+      if (t === 'ligera') w.ligera.plan++;
+      if (d.gym === 'yes') w.fuerza.done++;
+      if (d.light === 'yes') w.ligera.done++;
+    }
+    return w;
+  }
+
   // Presupuesto de la semana de `todayKey` y objetivo de hoy tras repartir lo gastado.
   function plan(db, todayKey) {
     const s = db.settings;
@@ -209,6 +235,6 @@
     return lines.join('\r\n') + '\r\n';
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients };
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -33,16 +33,25 @@ const DOWFULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes'
 /* ---------- Vistas ---------- */
 // Tarjeta «¿Fuiste al gimnasio?» (igual con o sin plan).
 function gymCard(d, now) {
-  const s = db.settings, sched = s.gymDays.includes(now.getDay());
+  const s = db.settings, sched = s.gymDays.includes(now.getDay()), rt = L.routineOf(s)[now.getDay()];
+  const what = rt.txt ? `<p class="mut" style="margin:2px 0 0">Hoy: ${esc(rt.txt)}</p>` : '';
+  // Día ligero (estiramientos, glúteos…): se cuenta aparte y no cambia las calorías.
+  if (rt.t === 'ligera') {
+    if (!d.light) {
+      return `<section class="card gym row"><div style="flex:1"><h2>¿Fuiste a la sesión ligera?</h2>${what}</div>
+        <button class="btn primary" data-act="light" data-v="yes">Sí</button><button class="btn" data-act="light" data-v="no">No</button></section>`;
+    }
+    return `<section class="card row between"><div><span style="font-size:14px;font-weight:600">${d.light === 'yes' ? 'Sesión ligera hecha' : 'Sesión ligera saltada'}</span>${what}</div><button class="btn ghost" data-act="light" data-v="">Cambiar</button></section>`;
+  }
   if (sched && !d.gym) {
-    return `<section class="card gym row"><div style="flex:1"><h2>¿Fuiste al gimnasio?</h2><p class="mut">Se guardan ${n0(s.gymKcal)} kcal</p></div>
+    return `<section class="card gym row"><div style="flex:1"><h2>¿Fuiste al gimnasio?</h2>${what}<p class="mut" style="margin:2px 0 0">Si no vas, se restan ${n0(s.gymKcal)} kcal de margen</p></div>
       <button class="btn primary" data-act="gym" data-v="yes">Sí</button><button class="btn" data-act="gym" data-v="no">No</button></section>`;
   }
   if (d.gym) {
     const txt = d.gym === 'yes' ? (sched ? 'Gimnasio hecho' : `Sesión extra · +${n0(s.gymKcal)} kcal de margen`) : `Gimnasio saltado · −${n0(s.gymKcal)} kcal de margen`;
-    return `<section class="card row between"><span style="font-size:14px;font-weight:600">${txt}</span><button class="btn ghost" data-act="gym" data-v="">Cambiar</button></section>`;
+    return `<section class="card row between"><div><span style="font-size:14px;font-weight:600">${txt}</span>${sched ? what : ''}</div><button class="btn ghost" data-act="gym" data-v="">Cambiar</button></section>`;
   }
-  return `<section class="card row between"><span class="mut">Hoy no toca gimnasio</span><button class="btn ghost" data-act="gym" data-v="yes">Hice una sesión extra</button></section>`;
+  return `<section class="card row between"><span class="mut">Hoy descansas</span><button class="btn ghost" data-act="gym" data-v="yes">Hice una sesión extra</button></section>`;
 }
 // Lista de lo registrado hoy (comidas, cambios y extras).
 const entriesHtml = (d) => [...d.entries].sort((a, b) => a.t.localeCompare(b.t)).map((e) => `
@@ -74,10 +83,15 @@ function viewHoyPlan() {
   const yList = (a) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} y ${a[a.length - 1]}` : a[0]);
   const avisos = (dueNames.length ? `<section class="card due"><h2>Te falta marcar: ${yList(dueNames)}</h2><p class="mut" style="margin:4px 0 0">Pulsa «Seguida», «Cambiada» o «Me la salté» en el menú.</p></section>` : '')
     + (now.getDay() === 5 && nowMin >= mins(r.compra) ? `<section class="card due row between"><div><h2>Hoy toca la compra</h2><p class="mut" style="margin:4px 0 0">Tu lista está en «Compra».</p></div><button class="btn primary" data-nav="compra">Ver lista</button></section>` : '');
+  // Días de fuerza: la cena es la comida después de entrenar (y el día de piernas, sin quedarse corto de hidratos).
+  const rt = L.routineOf(s)[now.getDay()];
+  const tipCena = L.isStrength(rt.t) && d.gym !== 'no'
+    ? `Cena después de entrenar: no te la saltes y que lleve proteína.${rt.t === 'piernas' ? ' Día de piernas: no te quedes corto de hidratos (arroz, patata, boniato o pan).' : ''}` : '';
   const meals = pd.meals.map((m) => `
     <div class="pmeal ${st[m.key] || ''} ${due.has(m.key) ? 'due' : ''}">
       <div class="row between"><h2>${m.meal}</h2>${m.libre ? '<span class="pill">Libre, con moderación</span>' : m.legumbres ? '<span class="pill">Legumbres</span>' : ''}</div>
       <p class="ptext">${esc(m.text)}</p>
+      ${m.key === 'cena' && tipCena ? `<p class="tip">${tipCena}</p>` : ''}
       ${db.plan.racionMaxG && m.key !== 'desayuno' ? `<p class="mut" style="margin:0 0 8px">Carne o pescado: hasta ${n0(db.plan.racionMaxG)} g</p>` : ''}
       <div class="pbtns">${PSTATE.map(([v, lab]) => `<button class="btn ${st[m.key] === v ? 'on ' + v : ''}" data-act="pm" data-m="${m.key}" data-v="${v}">${lab}</button>`).join('')}</div>
       ${st[m.key] === 'swap' ? swapBox(m, d) : ''}
@@ -132,8 +146,7 @@ function viewSemana() {
   }).join('');
   const lbl = p.keys.map((kk, i) => `<span style="${kk === k ? 'font-weight:700;color:var(--ink)' : ''}">${DOW[i]}</span>`).join('');
   const extras = p.keys.flatMap((kk) => L.dayRO(db, kk).entries.filter((e) => e.extra));
-  const gymDone = p.keys.filter((kk) => L.dayRO(db, kk).gym === 'yes').length;
-  const gymPlan = s.gymDays.length;
+  const gw = L.gymWeek(db, k);
   const lw = L.lastWeight(db, k), wLast = lw ? lw.kg : null;
   const lost = wLast !== null ? s.startWeight - wLast : 0;
   const cal = `<section class="card"><div class="row between"><h2>Calorías por día</h2><span class="mut">Línea: ${n0(s.target)} kcal</span></div>
@@ -144,7 +157,8 @@ function viewSemana() {
     <section class="card"><p class="mut" style="margin:0">Presupuesto semanal</p><b style="font-size:22px">${n0(p.weekly)}</b><p class="mut" style="margin:2px 0 0">kcal · quedan ${n0(p.weekly - p.eaten)}</p></section>
     ${db.plan ? '' : `<section class="card"><p class="mut" style="margin:0">Extras de la semana</p><b style="font-size:22px;color:var(--orange)">${extras.length}</b><p class="mut" style="margin:2px 0 0">${n0(extras.reduce((a, e) => a + e.kcal, 0))} kcal en total</p></section>`}
   </div>`;
-  const gym = `<section class="card"><div class="row between"><h2>Gimnasio</h2><span class="mut" style="font-size:13px">${gymDone} sesiones (previstas: ${gymPlan})</span></div></section>`;
+  const gym = `<section class="card"><div class="row between"><h2>Gimnasio</h2><span class="mut" style="font-size:13px">${gw.fuerza.done} de fuerza (previstas: ${gw.fuerza.plan})</span></div>
+    ${gw.ligera.plan || gw.ligera.done ? `<p class="mut" style="margin:4px 0 0;text-align:right">${gw.ligera.done} ligeras (previstas: ${gw.ligera.plan})</p>` : ''}</section>`;
   // Con plan: aviso de pesarse cada N días (por defecto 15).
   const every = db.plan ? db.plan.pesoCadaDias || 15 : 0;
   const due = every && (!lw || lw.days >= every);
@@ -209,6 +223,19 @@ function planCard() {
     <div class="row">${imp}<button class="btn ghost" data-act="planDel">Quitar plan</button></div></section>`;
 }
 
+// Ajustes > Rutina de gimnasio: tipo de día y qué toca (se guarda solo en el móvil). Los días de fuerza son los «días de gimnasio».
+const RTLABEL = { descanso: 'Descanso', fuerza: 'Fuerza', piernas: 'Fuerza: piernas', ligera: 'Ligera (estirar…)' };
+const WEEK = [1, 2, 3, 4, 5, 6, 0]; // lunes primero
+function rutCard() {
+  const r = L.routineOf(db.settings);
+  return `<form id="rutForm" class="card"><h2>Rutina de gimnasio</h2>
+    <p class="mut">Lo que pongas sale en «Hoy». Los días de fuerza cuentan como días de gimnasio; los ligeros, aparte y sin cambiar las calorías.</p>
+    ${WEEK.map((i) => `<div class="rut"><label for="rt_${i}">${cap(DOWFULL[i])}</label>
+      <select id="rt_${i}">${L.RTYPES.map((t) => `<option value="${t}"${r[i].t === t ? ' selected' : ''}>${RTLABEL[t]}</option>`).join('')}</select>
+      <input id="rx_${i}" type="text" autocomplete="off" placeholder="Qué haces (opcional)" value="${esc(r[i].txt)}" aria-label="Qué haces el ${DOWFULL[i]}"></div>`).join('')}
+    <button class="btn primary big" type="submit">Guardar rutina</button></form>`;
+}
+
 // Ajustes > Recordatorios: horas y archivo para el calendario del móvil.
 const REM = [['desayuno', 'Desayuno'], ['almuerzo', 'Comida'], ['cena', 'Cena'], ['gym', 'Gimnasio'], ['compra', 'Compra (viernes)']];
 const remOf = () => ({ ...DEF.settings.rem, ...db.settings.rem });
@@ -242,6 +269,7 @@ function viewAjustes() {
   const num = (id, lab, v, step = 1) => `<div><label for="${id}">${lab}</label><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${v}"></div>`;
   return `<h1>Ajustes</h1>
   ${planCard()}
+  ${rutCard()}
   ${remCard()}
   <form id="setForm" class="card">
     <h2>Objetivos diarios</h2>
@@ -278,6 +306,7 @@ document.addEventListener('click', (ev) => {
   const k = todayKey();
   switch (el.dataset.act) {
     case 'gym': dayRW(k).gym = el.dataset.v || undefined; save(); render(); break;
+    case 'light': dayRW(k).light = el.dataset.v || undefined; save(); render(); break;
     case 'del': { const d = dayRW(k); d.entries = d.entries.filter((e) => String(e.id) !== el.dataset.id); save(); render(); break; }
     case 'add': openDialog(); break;
     case 'export': exportData(); break;
@@ -330,6 +359,16 @@ document.addEventListener('submit', (ev) => {
     const g = (id) => Number($('#' + id).value);
     Object.assign(db.settings, { target: g('sTarget'), floor: g('sFloor'), p: g('sP'), c: g('sC'), f: g('sF'), gymKcal: g('sGym'), startWeight: g('sW0'), goalWeight: g('sW1'), apiKey: $('#sKey').value.trim(), model: $('#sModel').value.trim() || DEF.settings.model, orKey: $('#sOrKey').value.trim(), orModel: $('#sOrModel').value.trim() || DEF.settings.orModel });
     save(); render();
+  } else if (ev.target.id === 'rutForm') {
+    ev.preventDefault();
+    const r = Array.from({ length: 7 }, (_, i) => {
+      const t = $('#rt_' + i).value;
+      return { t: L.RTYPES.includes(t) ? t : 'descanso', txt: $('#rx_' + i).value.trim().slice(0, 120) };
+    });
+    db.settings.routine = r;
+    db.settings.gymDays = r.map((x, i) => (L.isStrength(x.t) ? i : -1)).filter((i) => i >= 0); // días de fuerza = días de gimnasio
+    save(); render();
+    alert('Rutina guardada. Si cambiaron los días de fuerza, descarga otra vez los recordatorios del calendario.');
   } else if (ev.target.id === 'remForm') {
     ev.preventDefault();
     const r = remOf();
