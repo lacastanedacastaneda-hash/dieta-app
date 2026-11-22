@@ -53,6 +53,53 @@
     return out;
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search };
+  /* ---------- Plan de comidas (menús por semanas; se importa desde Ajustes y vive solo en el móvil) ---------- */
+  const PDAYS = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab']; // índice = getDay()
+  const PMEALS = [['desayuno', 'Desayuno'], ['almuerzo', 'Comida'], ['cena', 'Cena']]; // clave del plan → nombre en la app
+
+  // Comprueba el JSON del plan y lo deja en el formato que usa la app. Lanza un Error en español si no sirve.
+  function readPlan(j) {
+    if (!j || !Array.isArray(j.semanas) || !j.semanas.length) throw new Error('El archivo no tiene «semanas».');
+    const semanas = j.semanas.map((w, i) => {
+      const days = {};
+      for (const d of PDAYS.slice(1).concat('dom')) {
+        const src = w?.days?.[d];
+        if (!src) throw new Error(`A la semana ${i + 1} le falta el día «${d}».`);
+        days[d] = {};
+        for (const [m] of PMEALS) {
+          const x = src[m];
+          if (!x || typeof x.text !== 'string' || !x.text.trim()) throw new Error(`A la semana ${i + 1}, «${d}», le falta el texto de «${m}».`);
+          days[d][m] = { text: x.text.trim(), tags: Array.isArray(x.tags) ? x.tags.map(String) : [], ...(x.libre ? { libre: true } : {}), ...(x.legumbres ? { legumbres: true } : {}) };
+        }
+      }
+      return { name: String(w.name || `Semana ${String.fromCharCode(65 + i)}`), days };
+    });
+    const r = j.reglasDiarias || {}, n = (v, def) => (Number(v) > 0 ? Number(v) : def);
+    return {
+      semanas,
+      reglas: { agua: n(r.aguaVasos ?? r.agua, 14), fruta: n(r.frutas ?? r.fruta, 3), lacteo: n(r.lacteos ?? r.lacteo, 2), ensalada: n(r.ensaladasCrudas ?? r.ensaladas, 2) },
+      legumbresMax: n(j.reglasSemanales?.legumbresMaxVeces, 2),
+      racionMaxG: n(j.racionCarnePescadoMaxGramos ?? j.proteinaMaxGramosComidaYCena, 0) || null,
+      prohibido: Array.isArray(j.prohibidoFueraDeComidas) ? j.prohibidoFueraDeComidas.map(String) : [],
+      permitido: Array.isArray(j.permitido) ? j.permitido.map(String) : [],
+      nota: typeof j.revisarConProfesional === 'string' ? j.revisarConProfesional : '',
+    };
+  }
+
+  // Qué semana del plan toca en la fecha `k`. sel = {mode:'alt'|'fixed', week, start}: con 'alt', `week` es la que tocaba la semana de `start`.
+  function planWeek(p, sel, k) {
+    const n = p.semanas.length, w0 = (sel && Number(sel.week)) || 0;
+    if (!sel || sel.mode !== 'alt' || !sel.start) return ((w0 % n) + n) % n;
+    const weeks = Math.round((weekStart(parse(k)) - weekStart(parse(sel.start))) / (7 * 864e5));
+    return (((w0 + weeks) % n) + n) % n;
+  }
+
+  // Menú del día `k`: [{key, meal, text, tags, libre, legumbres}].
+  function planDay(p, sel, k) {
+    const wi = planWeek(p, sel, k), d = p.semanas[wi].days[PDAYS[parse(k).getDay()]];
+    return { week: wi, weekName: p.semanas[wi].name, meals: PMEALS.map(([key, meal]) => ({ key, meal, ...d[key] })) };
+  }
+
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

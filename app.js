@@ -5,6 +5,7 @@ const DEF = {
   days: {},
   weights: {},
   products: {},
+  plan: null, // plan de comidas importado (L.readPlan); planSel en settings dice qué semana toca
 };
 let db = load();
 let view = 'hoy';
@@ -29,26 +30,62 @@ const DOW = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 const DOWFULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 
 /* ---------- Vistas ---------- */
+// Tarjeta «¿Fuiste al gimnasio?» (igual con o sin plan).
+function gymCard(d, now) {
+  const s = db.settings, sched = s.gymDays.includes(now.getDay());
+  if (sched && !d.gym) {
+    return `<section class="card gym row"><div style="flex:1"><h2>¿Fuiste al gimnasio?</h2><p class="mut">Se guardan ${n0(s.gymKcal)} kcal</p></div>
+      <button class="btn primary" data-act="gym" data-v="yes">Sí</button><button class="btn" data-act="gym" data-v="no">No</button></section>`;
+  }
+  if (d.gym) {
+    const txt = d.gym === 'yes' ? (sched ? 'Gimnasio hecho' : `Sesión extra · +${n0(s.gymKcal)} kcal de margen`) : `Gimnasio saltado · −${n0(s.gymKcal)} kcal de margen`;
+    return `<section class="card row between"><span style="font-size:14px;font-weight:600">${txt}</span><button class="btn ghost" data-act="gym" data-v="">Cambiar</button></section>`;
+  }
+  return `<section class="card row between"><span class="mut">Hoy no toca gimnasio</span><button class="btn ghost" data-act="gym" data-v="yes">Hice una sesión extra</button></section>`;
+}
+// Lista de lo registrado hoy (comidas, cambios y extras).
+const entriesHtml = (d) => [...d.entries].sort((a, b) => a.t.localeCompare(b.t)).map((e) => `
+    <div class="meal ${e.extra ? 'extra' : ''}"><span class="t">${esc(e.t)}</span>
+      <div class="n">${esc(e.name)}<span class="mut" style="font-weight:400;display:block">${esc(e.meal)}</span>${e.extra ? '<span class="tag">FUERA DE DIETA</span>' : ''}</div>
+      <span class="k">${e.extra ? '+' : ''}${n0(e.kcal)} kcal</span>
+      <button class="del" data-act="del" data-id="${e.id}" aria-label="Borrar ${esc(e.name)}">✕</button></div>`).join('');
+
+// «Hoy» con plan: menú del día con seguida / cambiada / me la salté, y contadores de las reglas diarias.
+const PSTATE = [['ok', 'Seguida'], ['cambio', 'Cambiada'], ['salto', 'Me la salté']];
+const COUNTERS = [['agua', 'Agua', 'vasos'], ['fruta', 'Fruta', 'piezas'], ['lacteo', 'Lácteos', ''], ['ensalada', 'Ensaladas', '']];
+function viewHoyPlan() {
+  const k = todayKey(), now = new Date(), s = db.settings, d = L.dayRO(db, k);
+  const pd = L.planDay(db.plan, s.planSel, k), st = d.plan || {}, cnt = d.cnt || {};
+  const sched = s.gymDays.includes(now.getDay());
+  const meals = pd.meals.map((m) => `
+    <div class="pmeal ${st[m.key] || ''}">
+      <div class="row between"><h2>${m.meal}</h2>${m.libre ? '<span class="pill">Libre, con moderación</span>' : m.legumbres ? '<span class="pill">Legumbres</span>' : ''}</div>
+      <p class="ptext">${esc(m.text)}</p>
+      ${db.plan.racionMaxG && m.key !== 'desayuno' ? `<p class="mut" style="margin:0 0 8px">Carne o pescado: hasta ${n0(db.plan.racionMaxG)} g</p>` : ''}
+      <div class="pbtns">${PSTATE.map(([v, lab]) => `<button class="btn ${st[m.key] === v ? 'on ' + v : ''}" data-act="pm" data-m="${m.key}" data-v="${v}">${lab}</button>`).join('')}</div>
+    </div>`).join('');
+  const rules = COUNTERS.map(([key, lab, unit]) => {
+    const goal = db.plan.reglas[key], v = cnt[key] || 0;
+    return `<div class="cnt ${v >= goal ? 'done' : ''}"><span class="cl">${lab}</span><b>${v} / ${goal}${unit ? ` <span class="mut">${unit}</span>` : ''}</b>
+      <button class="btn" data-act="cnt" data-k="${key}" data-d="-1" aria-label="Quitar ${lab}">−</button><button class="btn" data-act="cnt" data-k="${key}" data-d="1" aria-label="Añadir ${lab}">+</button></div>`;
+  }).join('');
+  const t = L.tot(db, k), list = entriesHtml(d);
+  return `<p class="sub">${DOWFULL[now.getDay()]} · ${esc(pd.weekName)}${sched ? ' · día de gimnasio' : ''}</p><h1>Hoy</h1>
+  <section class="card"><h2>Menú de hoy</h2>${meals}</section>
+  <section class="card"><h2>Reglas del día</h2>${rules}</section>
+  ${gymCard(d, now)}
+  <div class="row between" style="margin:18px 0 0"><h2>Cambios y extras</h2>${d.entries.length ? `<span class="mut">${n0(t.kcal)} kcal registradas</span>` : ''}</div>
+  ${list || '<p class="mut">Si te sales del menú, pulsa «Cambiada» o añade un extra.</p>'}
+  <button class="btn primary big" data-act="add">Añadir extra o comida</button>`;
+}
+
 function viewHoy() {
+  if (db.plan) return viewHoyPlan();
   const k = todayKey(), now = new Date(), s = db.settings;
   const p = L.plan(db, k), t = L.tot(db, k), d = L.dayRO(db, k);
   const left = p.todayTarget - t.kcal;
   const sched = s.gymDays.includes(now.getDay());
-  let gym = '';
-  if (sched && !d.gym) {
-    gym = `<section class="card gym row"><div style="flex:1"><h2>¿Fuiste al gimnasio?</h2><p class="mut">Se guardan ${n0(s.gymKcal)} kcal</p></div>
-      <button class="btn primary" data-act="gym" data-v="yes">Sí</button><button class="btn" data-act="gym" data-v="no">No</button></section>`;
-  } else if (d.gym) {
-    const txt = d.gym === 'yes' ? (sched ? 'Gimnasio hecho' : `Sesión extra · +${n0(s.gymKcal)} kcal de margen`) : `Gimnasio saltado · −${n0(s.gymKcal)} kcal de margen`;
-    gym = `<section class="card row between"><span style="font-size:14px;font-weight:600">${txt}</span><button class="btn ghost" data-act="gym" data-v="">Cambiar</button></section>`;
-  } else {
-    gym = `<section class="card row between"><span class="mut">Hoy no toca gimnasio</span><button class="btn ghost" data-act="gym" data-v="yes">Hice una sesión extra</button></section>`;
-  }
-  const meals = [...d.entries].sort((a, b) => a.t.localeCompare(b.t)).map((e) => `
-    <div class="meal ${e.extra ? 'extra' : ''}"><span class="t">${esc(e.t)}</span>
-      <div class="n">${esc(e.name)}<span class="mut" style="font-weight:400;display:block">${esc(e.meal)}${e.extra ? '' : ''}</span>${e.extra ? '<span class="tag">FUERA DE DIETA</span>' : ''}</div>
-      <span class="k">${e.extra ? '+' : ''}${n0(e.kcal)} kcal</span>
-      <button class="del" data-act="del" data-id="${e.id}" aria-label="Borrar ${esc(e.name)}">✕</button></div>`).join('');
+  const gym = gymCard(d, now), meals = entriesHtml(d);
   const adj = p.adjust === 0 ? 'Sin ajuste esta semana' : `Base ${n0(s.target)} · ajuste semanal ${p.adjust > 0 ? '+' : '−'}${n0(Math.abs(p.adjust))} kcal${p.floored ? ' (límite mínimo)' : ''}`;
   const mac = (lab, v, goal) => `<div><span class="mut">${lab}</span><b>${n0(v)} / ${n0(goal)} g</b><div class="bar thin"><i style="width:${pct(v, goal)}%"></i></div></div>`;
   return `<p class="sub">${DOWFULL[now.getDay()]}${sched ? ' · día de gimnasio' : ''}</p><h1>Hoy</h1>
@@ -96,10 +133,32 @@ function viewSemana() {
     <div class="bar"><i style="width:${pct(lost, s.startWeight - s.goalWeight)}%"></i></div>` : '<p class="mut">Registra tu peso en Ajustes.</p>'}</section>`;
 }
 
+// Ajustes > Plan de comidas: importar, elegir qué semana toca y quitar.
+function planCard() {
+  const imp = `<label class="btn" for="planFile" style="margin:0">${db.plan ? 'Cambiar plan' : 'Importar plan (JSON)'}</label><input id="planFile" type="file" accept="application/json,.json" hidden>`;
+  if (!db.plan) {
+    return `<section class="card"><h2>Plan de comidas</h2>
+    <p class="mut">Importa tu plan (menús por semanas y reglas). Se guarda solo en este móvil. Sin plan, «Hoy» funciona por calorías.</p>
+    <div class="row">${imp}</div></section>`;
+  }
+  const p = db.plan, k = todayKey(), cur = L.planWeek(p, db.settings.planSel, k), alt = db.settings.planSel?.mode === 'alt';
+  const opts = p.semanas.flatMap((w, i) => [[`alt:${i}`, `Alternar: esta semana, ${w.name}`], [`fixed:${i}`, `Siempre ${w.name}`]]);
+  const val = alt ? `alt:${cur}` : `fixed:${cur}`;
+  return `<section class="card"><h2>Plan de comidas</h2>
+    <p class="mut">${p.semanas.length} semanas · reglas diarias: ${p.reglas.agua} vasos de agua, ${p.reglas.fruta} frutas, ${p.reglas.lacteo} lácteos, ${p.reglas.ensalada} ensaladas · legumbres: máximo ${p.legumbresMax} a la semana${p.racionMaxG ? ` · carne o pescado: hasta ${n0(p.racionMaxG)} g por comida` : ''}.</p>
+    <label for="planSel">Qué semana toca</label>
+    <select id="planSel">${opts.map(([v, t]) => `<option value="${v}"${v === val ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+    ${p.prohibido.length ? `<p class="mut"><b>Fuera de las comidas, nada de:</b> ${esc(p.prohibido.join(', '))}.</p>` : ''}
+    ${p.permitido.length ? `<p class="mut"><b>Permitido:</b> ${esc(p.permitido.join('; '))}.</p>` : ''}
+    ${p.nota ? `<p class="mut">${esc(p.nota)}</p>` : ''}
+    <div class="row">${imp}<button class="btn ghost" data-act="planDel">Quitar plan</button></div></section>`;
+}
+
 function viewAjustes() {
   const s = db.settings;
   const num = (id, lab, v, step = 1) => `<div><label for="${id}">${lab}</label><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${v}"></div>`;
   return `<h1>Ajustes</h1>
+  ${planCard()}
   <form id="setForm" class="card">
     <h2>Objetivos diarios</h2>
     <div class="two">${num('sTarget', 'Calorías base', s.target)}${num('sFloor', 'Mínimo diario', s.floor)}${num('sP', 'Proteína g', s.p)}${num('sC', 'Carbohidratos g', s.c)}${num('sF', 'Grasa g', s.f)}${num('sGym', 'kcal por sesión', s.gymKcal)}</div>
@@ -138,6 +197,23 @@ document.addEventListener('click', (ev) => {
     case 'del': { const d = dayRW(k); d.entries = d.entries.filter((e) => String(e.id) !== el.dataset.id); save(); render(); break; }
     case 'add': openDialog(); break;
     case 'export': exportData(); break;
+    case 'pm': { // comida del plan: seguida / cambiada / me la salté (pulsar otra vez la quita)
+      const d = dayRW(k), m = el.dataset.m, v = el.dataset.v;
+      d.plan = d.plan || {};
+      if (d.plan[m] === v) delete d.plan[m]; else d.plan[m] = v;
+      save(); render();
+      if (d.plan[m] === 'cambio') openDialog(L.PMEALS.find(([key]) => key === m)?.[1]); // qué comiste (las kcal son opcionales)
+      break;
+    }
+    case 'cnt': { // contadores de agua, fruta, lácteos y ensaladas
+      const d = dayRW(k), key = el.dataset.k;
+      d.cnt = d.cnt || {};
+      d.cnt[key] = Math.max(0, (d.cnt[key] || 0) + Number(el.dataset.d));
+      save(); render(); break;
+    }
+    case 'planDel':
+      if (confirm('¿Quitar el plan de este móvil? Lo que ya has marcado en los días no se borra.')) { db.plan = null; save(); render(); }
+      break;
   }
 });
 
@@ -161,6 +237,22 @@ document.addEventListener('change', async (ev) => {
       if (!d.settings || !d.days) throw new Error('formato');
       db = { ...structuredClone(DEF), ...d, settings: { ...DEF.settings, ...d.settings } }; save(); render();
     } catch (e) { alert('No he podido leer esa copia.'); }
+  } else if (ev.target.id === 'planFile') {
+    const f = ev.target.files[0]; if (!f) return;
+    try {
+      let j;
+      try { j = JSON.parse(await f.text()); } catch (e) { throw new Error('El archivo no es un JSON válido.'); }
+      db.plan = L.readPlan(j);
+      // Primera vez: alternar empezando esta semana por la primera.
+      if (!db.settings.planSel) db.settings.planSel = { mode: 'alt', week: 0, start: L.iso(L.weekStart(new Date())) };
+      save(); render();
+      alert(`Plan importado: ${db.plan.semanas.map((w) => w.name).join(' y ')}.`);
+    } catch (e) { alert(`No he podido importar el plan. ${e.message}`); }
+    ev.target.value = '';
+  } else if (ev.target.id === 'planSel') {
+    const [mode, w] = ev.target.value.split(':');
+    db.settings.planSel = mode === 'alt' ? { mode, week: Number(w), start: L.iso(L.weekStart(new Date())) } : { mode: 'fixed', week: Number(w) };
+    save(); render();
   }
 });
 
@@ -186,10 +278,10 @@ function show(m) {
   if (m === 'prod') renderProducts();
 }
 function guessMeal(h) { return h < 11.5 ? 'Desayuno' : h < 16 ? 'Comida' : 'Cena'; }
-function openDialog() {
+function openDialog(meal) {
   $('#addForm').reset(); photo = null; cur = null; merc = null; mercLabel = ''; $('#btnReadLabel').hidden = true; $('#mList').innerHTML = ''; setMerc(''); setMsg(''); setNew('');
   const n = new Date();
-  $('#fMeal').value = guessMeal(n.getHours() + n.getMinutes() / 60);
+  $('#fMeal').value = meal || guessMeal(n.getHours() + n.getMinutes() / 60);
   show(Object.keys(db.products).length ? 'prod' : 'new');
   $('#dlg').showModal();
 }
