@@ -183,7 +183,7 @@ function show(m) {
 }
 function guessMeal(h) { return h < 11.5 ? 'Desayuno' : h < 16 ? 'Comida' : 'Cena'; }
 function openDialog() {
-  $('#addForm').reset(); photo = null; cur = null; merc = null; $('#mList').innerHTML = ''; setMsg(''); setNew('');
+  $('#addForm').reset(); photo = null; cur = null; merc = null; $('#mList').innerHTML = ''; setMerc(''); setMsg(''); setNew('');
   const n = new Date();
   $('#fMeal').value = guessMeal(n.getHours() + n.getMinutes() / 60);
   show(Object.keys(db.products).length ? 'prod' : 'new');
@@ -324,7 +324,8 @@ async function renderMerc() {
     ? list.map((p) => `<button type="button" class="meal pick" data-mid="${esc(p.id)}"><span class="n">${esc(p.name)}<span class="mut" style="font-weight:400;display:block">${esc(p.fmt)} · ${eur(p.price)}${p.ref != null && p.refUnit ? ` (${eur(p.ref)}/${esc(p.refUnit)})` : ''}</span></span></button>`).join('')
     : '<p class="mut">No hay productos con ese nombre.</p>') + `<p class="mut" style="font-size:12px">Precios de Mercadona del ${date}.</p>`;
 }
-$('#mSearch').addEventListener('input', renderMerc);
+function setMerc(t, err) { const m = $('#mMsg'); m.textContent = t; m.className = 'hint' + (err ? ' err' : ''); }
+$('#mSearch').addEventListener('input', () => { setMerc(''); renderMerc(); });
 $('#mList').addEventListener('click', (e) => { const b = e.target.closest('[data-mid]'); if (b) pickMerc(b.dataset.mid); });
 
 async function pickMerc(mid) {
@@ -335,8 +336,8 @@ async function pickMerc(mid) {
   merc = info; const mine = merc;
   $('#mList').innerHTML = ''; // se deja el texto buscado para poder reintentar
   fillNew({ name: `${p.name} · ${p.fmt}`, kcal: NaN }); $('#nKcal').value = '';
-  if (!p.label) return setNew('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
-  setNew('Leyendo la tabla nutricional de Mercadona…');
+  if (!p.label) return setMerc('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
+  setMerc('Leyendo la tabla nutricional de Mercadona… (puede tardar unos segundos)');
   try {
     let blob;
     try { blob = await (await fetch(`${c.img}${p.label}?fit=max&w=1600&h=1600`)).blob(); } catch (e) { throw new Error('No he podido descargar la foto de la etiqueta. Revisa la conexión.'); }
@@ -344,10 +345,10 @@ async function pickMerc(mid) {
     if (merc !== mine) return; // se ha elegido otro producto mientras tanto
     if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla en la foto de Mercadona. Escanea el envase o escribe los datos.');
     fillNew({ kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
-    setNew('Leído de la foto de Mercadona. Compruébalo antes de guardar.');
+    setMerc('Leído de la foto de Mercadona. Compruébalo abajo antes de guardar.');
   } catch (err) {
     if (merc !== mine) return;
-    setNew(`${err.message} Para reintentarlo, toca otra vez el producto en la lista.`, true);
+    setMerc(`${err.message} Para reintentarlo, toca otra vez el producto en la lista.`, true);
     renderMerc(); // vuelve a mostrar la lista
   }
 }
@@ -404,21 +405,22 @@ const callGemini = (model, parts, key) => fetch(`${API}/models/${encodeURICompon
   method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
   body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } }),
 });
-// Si el modelo guardado ya no existe (404), busca uno "flash" disponible y lo guarda.
-async function pickModel(key) {
+// Modelos "flash" disponibles para la clave, el "latest" primero y luego los más nuevos.
+async function flashModels(key) {
   try {
     const j = await (await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } })).json();
     const ok = (j.models || []).filter((m) => m.supportedGenerationMethods?.includes('generateContent') && /flash/.test(m.name) && !/(lite|image|tts|live|audio|embedding)/.test(m.name)).map((m) => m.name.replace('models/', ''));
-    return ok.find((n) => /latest/.test(n)) || ok.sort().pop();
-  } catch (e) { return undefined; }
+    return ok.sort().reverse().sort((a, b) => /latest/.test(b) - /latest/.test(a));
+  } catch (e) { return []; }
 }
 async function gemini(parts) {
   const s = db.settings;
   if (!s.apiKey) throw new Error('Falta la clave de Gemini en Ajustes. Mientras tanto, rellena los campos a mano.');
   const call = async (m) => { try { return await callGemini(m, parts, s.apiKey); } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); } };
   let r = await call(s.model);
+  // Si el modelo guardado ya no existe (404), busca uno "flash" disponible y lo guarda.
   if (r.status === 404) {
-    const m = await pickModel(s.apiKey);
+    const m = (await flashModels(s.apiKey))[0];
     if (m) { s.model = m; save(); r = await call(m); }
   }
   // 503/500: Gemini saturado; 429: límite por minuto. Suele pasarse en unos segundos: se reintenta dos veces.
@@ -426,12 +428,19 @@ async function gemini(parts) {
     if (![429, 500, 503].includes(r.status)) break;
     await sleep(wait); r = await call(s.model);
   }
+  // Si ese modelo sigue saturado, se prueba con otros dos "flash" (sin cambiar el de Ajustes).
+  if (r.status === 503 || r.status === 500) {
+    for (const m of (await flashModels(s.apiKey)).filter((x) => x !== s.model).slice(0, 2)) {
+      r = await call(m);
+      if (r.status !== 503 && r.status !== 500) break;
+    }
+  }
   if (r.status === 503 || r.status === 500) throw new Error('Gemini está saturado ahora mismo. Inténtalo otra vez en unos minutos.');
   if (r.status === 429) throw new Error('Has llegado al límite gratuito de Gemini por ahora. Espera un rato o rellena los datos a mano.');
   if (!r.ok) throw new Error(`Gemini respondió ${r.status}. Revisa la clave y el modelo en Ajustes.`);
   const j = await r.json();
   const raw = j.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  try { return JSON.parse(raw.replace(/^```json|```$/g, '').trim()); } catch (e) { throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.'); }
+  try { const o = JSON.parse(raw.replace(/^```json|```$/g, '').trim()); return Array.isArray(o) ? o[0] || {} : o; } catch (e) { throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.'); }
 }
 
 render();
