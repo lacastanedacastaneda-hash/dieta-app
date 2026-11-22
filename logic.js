@@ -103,11 +103,13 @@
 
   // Resumen de la semana de `k` con el plan. Los días pasados cuentan sus 3 comidas (sin marcar = «sin marcar»);
   // de hoy solo cuentan las ya marcadas. No cuentan los días futuros ni los anteriores a importar el plan (p.desde).
-  const PST = ['ok', 'cambio', 'salto'];
+  // Estados de una comida: ok = seguida; swap = seguida con cambio (cuenta como seguida y guarda qué faltó en day.swap);
+  // cambio = cambiada; salto = me la salté.
+  const PST = ['ok', 'swap', 'cambio', 'salto'];
   function planWeekStats(db, k) {
     const p = db.plan, sel = db.settings.planSel, ws = weekStart(parse(k));
     const keys = Array.from({ length: 7 }, (_, i) => iso(addDays(ws, i))), idx = keys.indexOf(k);
-    const st = { ok: 0, cambio: 0, salto: 0, sin: 0, total: 0, legumbres: 0, legumbresMenu: 0, reglas: {}, dias: [], elapsed: 0 };
+    const st = { ok: 0, swap: 0, cambio: 0, salto: 0, sin: 0, total: 0, legumbres: 0, legumbresMenu: 0, reglas: {}, dias: [], elapsed: 0, faltas: {}, cambios: [] };
     for (const r of Object.keys(p.reglas)) st.reglas[r] = 0;
     keys.forEach((kk, i) => {
       const d = dayRO(db, kk), pd = planDay(p, sel, kk), marks = d.plan || {};
@@ -120,13 +122,21 @@
         const v = PST.includes(marks[m.key]) ? marks[m.key] : '';
         if (v) st[v]++; else if (i < idx) st.sin++;
         if (v || i < idx) st.total++;
-        if (v === 'ok' && m.legumbres) st.legumbres++;
+        if ((v === 'ok' || v === 'swap') && m.legumbres) st.legumbres++;
+        if (v === 'swap') { // qué faltó y por qué se cambió
+          const sw = (d.swap || {})[m.key] || {}, miss = Array.isArray(sw.miss) ? sw.miss : [];
+          for (const x of miss) st.faltas[x] = (st.faltas[x] || 0) + 1;
+          st.cambios.push({ key: kk, day: PDAYS[parse(kk).getDay()], meal: m.meal, miss, por: sw.por || '' });
+        }
       }
       for (const r of Object.keys(p.reglas)) if (((d.cnt || {})[r] || 0) >= p.reglas[r]) st.reglas[r]++;
     });
-    st.pct = st.total ? Math.round((st.ok / st.total) * 100) : null;
+    st.pct = st.total ? Math.round(((st.ok + st.swap) / st.total) * 100) : null;
     return st;
   }
+
+  // Ingredientes de una comida del plan, con las alternativas separadas y sin repetir (para «¿qué te faltó?»).
+  const mealIngredients = (m) => [...new Set((m.tags || []).flatMap(splitTag))];
 
   // Último peso registrado y días que han pasado desde entonces hasta `k` (null si no hay ninguno).
   function lastWeight(db, k) {
@@ -199,6 +209,6 @@
     return lines.join('\r\n') + '\r\n';
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders };
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

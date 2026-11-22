@@ -52,7 +52,15 @@ const entriesHtml = (d) => [...d.entries].sort((a, b) => a.t.localeCompare(b.t))
       <button class="del" data-act="del" data-id="${e.id}" aria-label="Borrar ${esc(e.name)}">✕</button></div>`).join('');
 
 // «Hoy» con plan: menú del día con seguida / cambiada / me la salté, y contadores de las reglas diarias.
-const PSTATE = [['ok', 'Seguida'], ['cambio', 'Cambiada'], ['salto', 'Me la salté']];
+const PSTATE = [['ok', 'Seguida'], ['swap', 'Seguida con cambio'], ['cambio', 'Cambiada'], ['salto', 'Me la salté']];
+// «Seguida con cambio»: toca el ingrediente que te faltó y, si quieres, escribe por qué lo cambiaste.
+function swapBox(m, d) {
+  const sw = (d.swap || {})[m.key] || {}, miss = sw.miss || [];
+  return `<div class="swapbox"><p class="mut" style="margin:0 0 6px">¿Qué te faltó?</p>
+    <div class="chips">${L.mealIngredients(m).map((x) => `<button class="chip ${miss.includes(x) ? 'on' : ''}" data-act="swMiss" data-m="${m.key}" data-i="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <label for="swPor_${m.key}">Lo cambié por (opcional)</label>
+    <input id="swPor_${m.key}" type="text" autocomplete="off" placeholder="Ej.: atún, 2 huevos" value="${esc(sw.por || '')}"></div>`;
+}
 const COUNTERS = [['agua', 'Agua', 'vasos'], ['fruta', 'Fruta', 'piezas'], ['lacteo', 'Lácteos', ''], ['ensalada', 'Ensaladas', '']];
 function viewHoyPlan() {
   const k = todayKey(), now = new Date(), s = db.settings, d = L.dayRO(db, k);
@@ -72,6 +80,7 @@ function viewHoyPlan() {
       <p class="ptext">${esc(m.text)}</p>
       ${db.plan.racionMaxG && m.key !== 'desayuno' ? `<p class="mut" style="margin:0 0 8px">Carne o pescado: hasta ${n0(db.plan.racionMaxG)} g</p>` : ''}
       <div class="pbtns">${PSTATE.map(([v, lab]) => `<button class="btn ${st[m.key] === v ? 'on ' + v : ''}" data-act="pm" data-m="${m.key}" data-v="${v}">${lab}</button>`).join('')}</div>
+      ${st[m.key] === 'swap' ? swapBox(m, d) : ''}
     </div>`).join('');
   const rules = COUNTERS.map(([key, lab, unit]) => {
     const goal = db.plan.reglas[key], v = cnt[key] || 0;
@@ -161,9 +170,13 @@ function planWeekHtml(k) {
   const ws = L.weekStart(L.parse(k)), we = L.addDays(ws, 6);
   const extras = st.dias.flatMap((d) => L.dayRO(db, d.key).entries).filter((e) => e.extra);
   return `<section class="card"><div class="row between"><h2>Cumplimiento del plan</h2><b class="big-pct">${st.pct === null ? '—' : st.pct + ' %'}</b></div>
-    <p class="mut" style="margin:2px 0 0">${st.pct === null ? 'Aún no has marcado ninguna comida esta semana.' : `${st.ok} de ${st.total} comidas seguidas`}</p>
+    <p class="mut" style="margin:2px 0 0">${st.pct === null ? 'Aún no has marcado ninguna comida esta semana.' : `${st.ok + st.swap} de ${st.total} comidas seguidas${st.swap ? ` (${st.swap} con cambio)` : ''}`}</p>
     <div class="pweek">${dots}</div>
-    <p class="mut" style="margin:8px 0 0"><i class="dot ok"></i> seguida · <i class="dot cambio"></i> cambiada o saltada · <i class="dot"></i> sin marcar</p></section>
+    <p class="mut" style="margin:8px 0 0"><i class="dot ok"></i> seguida · <i class="dot swap"></i> con cambio · <i class="dot cambio"></i> cambiada o saltada · <i class="dot"></i> sin marcar</p></section>
+  ${st.cambios.length ? `<section class="card"><h2>Seguidas con cambio</h2>
+    ${Object.keys(st.faltas).length ? `<p style="margin:8px 0 0;font-size:14px"><b>Te faltó:</b> ${Object.entries(st.faltas).sort((x, y) => y[1] - x[1]).map(([x, n]) => `${esc(x)}${n > 1 ? ` (${n} veces)` : ''}`).join(', ')}</p>` : ''}
+    ${st.cambios.map((c) => `<p class="mut" style="margin:6px 0 0">${DSHORT[c.day]}, ${c.meal.toLowerCase()}: ${c.miss.length ? `faltó ${esc(c.miss.join(', '))}` : 'sin indicar qué faltó'}${c.por ? ` → ${esc(c.por)}` : ''}</p>`).join('')}
+    <p class="mut" style="margin:8px 0 0">Si te falta algo a menudo, revisa que esté en la lista de la compra.</p></section>` : ''}
   <div class="two">
     <section class="card"><p class="mut" style="margin:0">Desvíos</p><b style="font-size:22px;color:var(--orange)">${st.cambio + st.salto}</b>
       <p class="mut" style="margin:2px 0 0">${st.cambio} cambiadas · ${st.salto} saltadas${st.sin ? ` · ${st.sin} sin marcar` : ''}</p></section>
@@ -273,9 +286,16 @@ document.addEventListener('click', (ev) => {
       const d = dayRW(k), m = el.dataset.m, v = el.dataset.v;
       d.plan = d.plan || {};
       if (d.plan[m] === v) delete d.plan[m]; else d.plan[m] = v;
+      if (d.plan[m] !== 'swap' && d.swap) delete d.swap[m]; // al dejar «Seguida con cambio» se olvida qué faltó
       save(); render();
       if (d.plan[m] === 'cambio') openDialog(L.PMEALS.find(([key]) => key === m)?.[1]); // qué comiste (las kcal son opcionales)
       break;
+    }
+    case 'swMiss': { // «¿Qué te faltó?»: tocar un ingrediente lo marca o lo desmarca
+      const d = dayRW(k), m = el.dataset.m, i = el.dataset.i;
+      d.swap = d.swap || {}; const sw = d.swap[m] = d.swap[m] || {};
+      const miss = new Set(sw.miss || []); if (miss.has(i)) miss.delete(i); else miss.add(i);
+      sw.miss = [...miss]; save(); render(); break;
     }
     case 'cnt': { // contadores de agua, fruta, lácteos y ensaladas
       const d = dayRW(k), key = el.dataset.k;
@@ -342,6 +362,9 @@ document.addEventListener('change', async (ev) => {
       alert(`Plan importado: ${db.plan.semanas.map((w) => w.name).join(' y ')}.`);
     } catch (e) { alert(`No he podido importar el plan. ${e.message}`); }
     ev.target.value = '';
+  } else if (ev.target.id.startsWith('swPor_')) { // «Lo cambié por» (se guarda al salir del campo, sin repintar)
+    const d = dayRW(todayKey()), m = ev.target.id.slice(6);
+    d.swap = d.swap || {}; (d.swap[m] = d.swap[m] || {}).por = ev.target.value.trim(); save();
   } else if (ev.target.id === 'planSel') {
     const [mode, w] = ev.target.value.split(':');
     db.settings.planSel = mode === 'alt' ? { mode, week: Number(w), start: L.iso(L.weekStart(new Date())) } : { mode: 'fixed', week: Number(w) };
