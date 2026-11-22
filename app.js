@@ -187,7 +187,7 @@ function show(m) {
 }
 function guessMeal(h) { return h < 11.5 ? 'Desayuno' : h < 16 ? 'Comida' : 'Cena'; }
 function openDialog() {
-  $('#addForm').reset(); photo = null; cur = null; merc = null; $('#mList').innerHTML = ''; setMerc(''); setMsg(''); setNew('');
+  $('#addForm').reset(); photo = null; cur = null; merc = null; mercLabel = ''; $('#btnReadLabel').hidden = true; $('#mList').innerHTML = ''; setMerc(''); setMsg(''); setNew('');
   const n = new Date();
   $('#fMeal').value = guessMeal(n.getHours() + n.getMinutes() / 60);
   show(Object.keys(db.products).length ? 'prod' : 'new');
@@ -237,7 +237,7 @@ const num = (id) => Number($(id).value);
 function fillNew(o) {
   if (o.name) $('#nName').value = o.name;
   $('#nKcal').value = Math.round(o.kcal); $('#nP').value = r1(o.p || 0); $('#nC').value = r1(o.c || 0); $('#nF').value = r1(o.f || 0);
-  $('#nUnit').value = o.unitG > 0 ? o.unitG : '';
+  if (o.unitG > 0 && !$('#nUnit').value) $('#nUnit').value = o.unitG; // si lo has escrito tú, no se toca
 }
 $('#btnSaveProd').addEventListener('click', () => {
   const name = $('#nName').value.trim();
@@ -337,25 +337,36 @@ async function pickMerc(mid) {
   const info = { mid: p.id, price: p.price, size: p.size || undefined };
   const ex = Object.values(db.products).find((x) => x.mid === p.id);
   if (ex) { Object.assign(ex, info); save(); return selectProduct(ex.id); } // ya lo tenías: solo se actualiza el precio
-  merc = info; const mine = merc;
-  $('#mList').innerHTML = ''; // se deja el texto buscado para poder reintentar
-  fillNew({ name: `${p.name} · ${p.fmt}`, kcal: NaN }); $('#nKcal').value = '';
-  if (!p.label) return setMerc('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
-  setMerc('Leyendo la tabla nutricional de Mercadona… (puede tardar unos segundos)');
+  // Paso 1: solo se rellena el nombre. La IA no se usa hasta pulsar «Leer información nutricional».
+  merc = info; mercLabel = p.label ? `${c.img}${p.label}?fit=max&w=1600&h=1600` : '';
+  $('#mList').innerHTML = ''; setMerc('');
+  $('#nName').value = `${p.name} · ${p.fmt}`;
+  $('#nKcal').value = ''; $('#nP').value = 0; $('#nC').value = 0; $('#nF').value = 0; $('#nUnit').value = '';
+  $('#btnReadLabel').hidden = !mercLabel;
+  if (!mercLabel) return setNew('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
+  setNew('Escribe el peso de una unidad o ración si lo sabes (opcional) y pulsa «Leer información nutricional».');
+  $('#nUnit').focus();
+}
+
+// Paso 2: Gemini (u OpenRouter) lee la foto de la tabla de Mercadona.
+let mercLabel = '';
+$('#btnReadLabel').addEventListener('click', async () => {
+  if (!mercLabel) return;
+  const mine = merc, btn = $('#btnReadLabel');
+  btn.disabled = true;
+  setNew('Leyendo la información nutricional… (puede tardar unos segundos)');
   try {
     let blob;
-    try { blob = await (await fetch(`${c.img}${p.label}?fit=max&w=1600&h=1600`)).blob(); } catch (e) { throw new Error('No he podido descargar la foto de la etiqueta. Revisa la conexión.'); }
+    try { blob = await (await fetch(mercLabel)).blob(); } catch (e) { throw new Error('No he podido descargar la foto de la etiqueta. Revisa la conexión.'); }
     const o = await ia([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(blob, 1600) } }]);
     if (merc !== mine) return; // se ha elegido otro producto mientras tanto
     if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla en la foto de Mercadona. Escanea el envase o escribe los datos.');
     fillNew({ kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
-    setMerc(`Leído de la foto de Mercadona con ${aiVia}. Compruébalo abajo antes de guardar.`);
+    setNew(`Leído de la foto de Mercadona con ${aiVia}. Compruébalo antes de guardar.`);
   } catch (err) {
-    if (merc !== mine) return;
-    setMerc(`${err.message} Para reintentarlo, toca otra vez el producto en la lista.`, true);
-    renderMerc(); // vuelve a mostrar la lista
-  }
-}
+    if (merc === mine) setNew(`${err.message} Puedes volver a pulsar «Leer información nutricional».`, true);
+  } finally { btn.disabled = false; }
+});
 
 /* --- Comida con IA --- */
 $('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });

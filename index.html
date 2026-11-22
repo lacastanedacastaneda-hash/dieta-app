@@ -53,6 +53,9 @@
       <p id="newMsg" class="hint"></p>
       <label for="nName">Nombre</label>
       <input id="nName" type="text" autocomplete="off">
+      <label for="nUnit">Peso de una unidad o ración, en g (opcional)</label>
+      <input id="nUnit" type="number" inputmode="decimal" min="0" step="any">
+      <button type="button" id="btnReadLabel" class="btn" style="margin-top:10px" hidden>Leer información nutricional</button>
       <p class="mut" style="margin:10px 0 0">Valores por 100 g, como en la etiqueta</p>
       <div class="grid4">
         <div><label for="nKcal">kcal</label><input id="nKcal" type="number" inputmode="decimal" min="0" step="any"></div>
@@ -60,8 +63,6 @@
         <div><label for="nC">Carb. g</label><input id="nC" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
         <div><label for="nF">Grasa g</label><input id="nF" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
       </div>
-      <label for="nUnit">Peso de una unidad o ración, en g (opcional)</label>
-      <input id="nUnit" type="number" inputmode="decimal" min="0" step="any">
       <button type="button" id="btnSaveProd" class="btn primary big">Guardar producto y elegir cantidad</button>
     </section>
 
