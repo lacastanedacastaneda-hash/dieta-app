@@ -333,7 +333,7 @@ async function pickMerc(mid) {
   const ex = Object.values(db.products).find((x) => x.mid === p.id);
   if (ex) { Object.assign(ex, info); save(); return selectProduct(ex.id); } // ya lo tenías: solo se actualiza el precio
   merc = info; const mine = merc;
-  $('#mList').innerHTML = ''; $('#mSearch').value = '';
+  $('#mList').innerHTML = ''; // se deja el texto buscado para poder reintentar
   fillNew({ name: `${p.name} · ${p.fmt}`, kcal: NaN }); $('#nKcal').value = '';
   if (!p.label) return setNew('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
   setNew('Leyendo la tabla nutricional de Mercadona…');
@@ -345,7 +345,11 @@ async function pickMerc(mid) {
     if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla en la foto de Mercadona. Escanea el envase o escribe los datos.');
     fillNew({ kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
     setNew('Leído de la foto de Mercadona. Compruébalo antes de guardar.');
-  } catch (err) { if (merc === mine) setNew(err.message, true); }
+  } catch (err) {
+    if (merc !== mine) return;
+    setNew(`${err.message} Para reintentarlo, toca otra vez el producto en la lista.`, true);
+    renderMerc(); // vuelve a mostrar la lista
+  }
 }
 
 /* --- Comida con IA --- */
@@ -411,12 +415,19 @@ async function pickModel(key) {
 async function gemini(parts) {
   const s = db.settings;
   if (!s.apiKey) throw new Error('Falta la clave de Gemini en Ajustes. Mientras tanto, rellena los campos a mano.');
-  let r;
-  try { r = await callGemini(s.model, parts, s.apiKey); } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); }
+  const call = async (m) => { try { return await callGemini(m, parts, s.apiKey); } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); } };
+  let r = await call(s.model);
   if (r.status === 404) {
     const m = await pickModel(s.apiKey);
-    if (m) { s.model = m; save(); r = await callGemini(m, parts, s.apiKey); }
+    if (m) { s.model = m; save(); r = await call(m); }
   }
+  // 503/500: Gemini saturado; 429: límite por minuto. Suele pasarse en unos segundos: se reintenta dos veces.
+  for (const wait of [3000, 8000]) {
+    if (![429, 500, 503].includes(r.status)) break;
+    await sleep(wait); r = await call(s.model);
+  }
+  if (r.status === 503 || r.status === 500) throw new Error('Gemini está saturado ahora mismo. Inténtalo otra vez en unos minutos.');
+  if (r.status === 429) throw new Error('Has llegado al límite gratuito de Gemini por ahora. Espera un rato o rellena los datos a mano.');
   if (!r.ok) throw new Error(`Gemini respondió ${r.status}. Revisa la clave y el modelo en Ajustes.`);
   const j = await r.json();
   const raw = j.candidates?.[0]?.content?.parts?.[0]?.text || '';
