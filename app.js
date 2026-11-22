@@ -7,6 +7,7 @@ const DEF = {
   products: {},
   plan: null, // plan de comidas importado (L.readPlan); planSel en settings dice qué semana toca
   shop: { map: {}, weeks: {} }, // compra: map = ingrediente → producto de Mercadona (id); weeks[viernes] = {have, got, qty}
+  workout: { ex: {}, log: {} }, // entreno: ex[día de la semana] = [{id, name}]; log['YYYY-MM-DD'][id] = {n, s, r, kg}
 };
 let db = load();
 let view = 'hoy';
@@ -34,7 +35,7 @@ const DOWFULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes'
 // Tarjeta «¿Fuiste al gimnasio?» (igual con o sin plan).
 function gymCard(d, now) {
   const s = db.settings, sched = s.gymDays.includes(now.getDay()), rt = L.routineOf(s)[now.getDay()];
-  const what = rt.txt ? `<p class="mut" style="margin:2px 0 0">Hoy: ${esc(rt.txt)}</p>` : '';
+  const what = `${rt.txt ? `<p class="mut" style="margin:2px 0 0">Hoy: ${esc(rt.txt)}</p>` : ''}<button class="link" data-nav="entreno">Apuntar ejercicios ›</button>`;
   // Día ligero (estiramientos, glúteos…): se cuenta aparte y no cambia las calorías.
   if (rt.t === 'ligera') {
     if (!d.light) {
@@ -293,14 +294,14 @@ function viewAjustes() {
 }
 
 function render() {
-  $('#app').innerHTML = { hoy: viewHoy, semana: viewSemana, compra: viewCompra, ajustes: viewAjustes }[view]();
+  $('#app').innerHTML = { hoy: viewHoy, semana: viewSemana, compra: viewCompra, entreno: viewEntreno, ajustes: viewAjustes }[view]();
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === view));
 }
 
 /* ---------- Acciones ---------- */
 document.addEventListener('click', (ev) => {
   const nav = ev.target.closest('[data-nav]');
-  if (nav) { view = nav.dataset.nav; render(); window.scrollTo(0, 0); return; }
+  if (nav) { view = nav.dataset.nav; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; } render(); window.scrollTo(0, 0); return; }
   const el = ev.target.closest('[data-act]');
   if (!el) return;
   const k = todayKey();
@@ -347,6 +348,46 @@ document.addEventListener('click', (ev) => {
     }
     case 'shopSet': db.shop.map[el.dataset.i] = el.dataset.mid; shopPick = null; save(); render(); break;
     case 'shopUnset': delete db.shop.map[el.dataset.i]; shopPick = null; save(); render(); break;
+    // --- Entreno ---
+    case 'woDay': { const dd = Number(el.dataset.d); woOff = dd ? Math.min(0, woOff + dd) : 0; woEdit = false; woOpen = null; render(); window.scrollTo(0, 0); break; }
+    case 'woEdit': woEdit = !woEdit; render(); break;
+    case 'woHist': woOpen = woOpen === el.dataset.id ? null : el.dataset.id; render(); break;
+    case 'woDone': {
+      const x = woFind(el.dataset.id); if (!x) break;
+      const e = woRead(x);
+      if (!e) { alert('Escribe las repeticiones con números, por ejemplo 10, o 10, 8, 6 si cada serie es distinta.'); break; }
+      const wk = woKey(), w = wo(); (w.log[wk] = w.log[wk] || {})[x.id] = e;
+      // Al apuntar el entreno, la tarjeta del gimnasio (o la de la sesión ligera) se marca sola.
+      const d = dayRW(wk), rt = L.routineOf(db.settings)[L.parse(wk).getDay()];
+      if (rt.t === 'ligera') d.light = d.light || 'yes'; else d.gym = d.gym || 'yes';
+      save(); render(); break;
+    }
+    case 'woUndo': {
+      const wk = woKey(), w = wo();
+      if (w.log[wk]) { delete w.log[wk][el.dataset.id]; if (!Object.keys(w.log[wk]).length) delete w.log[wk]; }
+      save(); render(); break;
+    }
+    case 'woAdd': {
+      const name = $('#woNew').value.trim().slice(0, 60); if (!name) break;
+      const w = wo(), dow = L.parse(woKey()).getDay();
+      (w.ex[dow] = w.ex[dow] || []).push({ id: woId(), name });
+      save(); render(); const inp = $('#woNew'); if (inp) inp.focus(); break;
+    }
+    case 'woMove': {
+      const w = wo(), list = w.ex[L.parse(woKey()).getDay()] || [], i = list.findIndex((x) => x.id === el.dataset.id), j = i + Number(el.dataset.d);
+      if (i >= 0 && j >= 0 && j < list.length) { [list[i], list[j]] = [list[j], list[i]]; save(); render(); }
+      break;
+    }
+    case 'woDel': {
+      const w = wo(), dow = L.parse(woKey()).getDay(), x = woFind(el.dataset.id);
+      if (x && confirm(`¿Quitar «${x.name}» del ${DOWFULL[dow]}? Lo que ya apuntaste se conserva.`)) { w.ex[dow] = w.ex[dow].filter((y) => y.id !== x.id); save(); render(); }
+      break;
+    }
+    case 'woCopy': { // copia los ejercicios de otro día (mismos ejercicios = mismo historial)
+      const w = wo(), dow = L.parse(woKey()).getDay(), list = w.ex[dow] = w.ex[dow] || [];
+      for (const x of w.ex[el.dataset.from] || []) if (!list.some((y) => y.id === x.id)) list.push({ ...x });
+      save(); render(); break;
+    }
     case 'planDel':
       if (confirm('¿Quitar el plan de este móvil? Lo que ya has marcado en los días no se borra.')) { db.plan = null; save(); render(); }
       break;
@@ -401,6 +442,12 @@ document.addEventListener('change', async (ev) => {
       alert(`Plan importado: ${db.plan.semanas.map((w) => w.name).join(' y ')}.`);
     } catch (e) { alert(`No he podido importar el plan. ${e.message}`); }
     ev.target.value = '';
+  } else if (ev.target.id.startsWith('wo_n_')) { // renombrar un ejercicio (en todos los días que lo tengan)
+    const id = ev.target.id.slice(5), name = ev.target.value.trim().slice(0, 60);
+    if (name) { for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) x.name = name; save(); }
+  } else if (/^wo_[srk]_/.test(ev.target.id)) { // corregir un ejercicio ya hecho
+    const id = ev.target.id.slice(5), wk = woKey(), x = woFind(id), w = wo();
+    if (x && w.log[wk] && w.log[wk][id]) { const e = woRead(x); if (e) { w.log[wk][id] = e; save(); } }
   } else if (ev.target.id.startsWith('swPor_')) { // «Lo cambié por» (se guarda al salir del campo, sin repintar)
     const d = dayRW(todayKey()), m = ev.target.id.slice(6);
     d.swap = d.swap || {}; (d.swap[m] = d.swap[m] || {}).por = ev.target.value.trim(); save();
@@ -695,6 +742,65 @@ function renderShopRes() {
     : '<p class="mut">No hay productos con ese nombre. Prueba con otra palabra.</p>';
 }
 document.addEventListener('input', (ev) => { if (ev.target.id === 'shopQ') renderShopRes(); });
+
+/* ---------- Entreno: tus ejercicios por día de la semana, con series, repeticiones y peso ---------- */
+let woOff = 0, woEdit = false, woOpen = null; // días respecto a hoy (≤ 0); editando ejercicios; ejercicio con el progreso abierto
+const wo = () => { db.workout = db.workout || {}; db.workout.ex = db.workout.ex || {}; db.workout.log = db.workout.log || {}; return db.workout; };
+const woKey = () => L.iso(L.addDays(L.parse(todayKey()), woOff));
+const woId = () => `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const kgTxt = (kg) => (kg ? String(kg).replace('.', ',') : '');
+function viewEntreno() {
+  const k = woKey(), dow = L.parse(k).getDay(), w = wo(), rt = L.routineOf(db.settings)[dow];
+  const list = w.ex[dow] || [], dayLog = w.log[k] || {};
+  const others = WEEK.filter((i) => i !== dow && (w.ex[i] || []).length);
+  const copyBtns = others.length ? `<p class="mut" style="margin:10px 0 4px">O copia los de otro día (comparten historial):</p><div class="chips">${others.map((i) => `<button class="chip" data-act="woCopy" data-from="${i}">${cap(DOWFULL[i])}</button>`).join('')}</div>` : '';
+  const head = `<p class="sub">${woOff === 0 ? 'Hoy' : cap(fdate(k, { weekday: 'long', day: 'numeric', month: 'long' }))} · ${RTLABEL[rt.t]}</p><h1>Entreno</h1>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="woDay" data-d="-1">‹ Día anterior</button>
+    ${woOff ? '<button class="btn ghost" data-act="woDay" data-d="0">Hoy</button><button class="btn ghost" style="margin-left:auto" data-act="woDay" data-d="1">Siguiente ›</button>' : ''}</div>
+    ${rt.txt ? `<section class="card"><p style="margin:0;font-size:14px"><b>${esc(rt.txt)}</b></p></section>` : ''}`;
+
+  if (woEdit) {
+    return `${head}<section class="card"><h2>Ejercicios del ${DOWFULL[dow]}</h2>
+      ${list.map((x, i) => `<div class="exedit"><input id="wo_n_${x.id}" type="text" autocomplete="off" value="${esc(x.name)}" aria-label="Nombre del ejercicio">
+        <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="-1" aria-label="Subir" ${i ? '' : 'disabled'}>↑</button>
+        <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="1" aria-label="Bajar" ${i < list.length - 1 ? '' : 'disabled'}>↓</button>
+        <button class="btn sq" data-act="woDel" data-id="${x.id}" aria-label="Quitar ${esc(x.name)}">✕</button></div>`).join('')}
+      <label for="woNew">Añadir ejercicio</label>
+      <div class="row"><input id="woNew" type="text" autocomplete="off" placeholder="Ej.: Press de banca" style="flex:1"><button class="btn" data-act="woAdd">Añadir</button></div>
+      ${copyBtns}
+      <button class="btn primary big" data-act="woEdit">Listo</button></section>`;
+  }
+  if (!list.length) {
+    return `${head}<section class="card"><p class="mut" style="margin:0">${rt.t === 'descanso' ? 'Hoy descansas. Si entrenas igualmente, añade los ejercicios de este día.' : `Todavía no has añadido los ejercicios del ${DOWFULL[dow]}.`}</p>
+      ${copyBtns}<button class="btn primary big" data-act="woEdit">Añadir ejercicios</button></section>`;
+  }
+  const cards = list.map((x) => {
+    const e = dayLog[x.id], last = L.exHistory(w.log, x.id, k)[0], base = e || (last && last.e);
+    const hist = woOpen === x.id ? (() => {
+      const all = L.exHistory(w.log, x.id), best = L.exBest(w.log, x.id);
+      return `<div class="exhist">${best ? `<p style="margin:0 0 6px;font-size:13px"><b>Mejor marca:</b> ${L.fmtSet(best.e)} <span class="mut">(${fdate(best.key)})</span></p>` : ''}
+        ${all.length ? all.slice(0, 8).map((h) => `<div class="row between hrow"><span class="mut">${fdate(h.key)}</span><span>${L.fmtSet(h.e)}</span></div>`).join('') : '<p class="mut" style="margin:0">Aún no hay sesiones.</p>'}</div>`;
+    })() : '';
+    return `<div class="ex ${e ? 'done' : ''}">
+      <div class="row between"><b>${esc(x.name)}</b>${e ? '<span class="ok">✓ Hecho</span>' : ''}</div>
+      <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p>
+      <div class="exin">
+        <div><label for="wo_s_${x.id}">Series</label><input id="wo_s_${x.id}" type="number" inputmode="numeric" min="1" value="${base ? base.s : 3}"></div>
+        <div><label for="wo_r_${x.id}">Repeticiones</label><input id="wo_r_${x.id}" type="text" inputmode="numeric" autocomplete="off" value="${base ? base.r.join(', ') : '10'}"></div>
+        <div><label for="wo_k_${x.id}">Kg</label><input id="wo_k_${x.id}" type="text" inputmode="decimal" autocomplete="off" placeholder="sin peso" value="${base ? kgTxt(base.kg) : ''}"></div>
+      </div>
+      <div class="row" style="margin-top:8px">${e ? `<button class="btn ghost" data-act="woUndo" data-id="${x.id}">Deshacer</button>` : `<button class="btn primary" data-act="woDone" data-id="${x.id}">Hecho</button>`}
+        <button class="btn ghost" style="margin-left:auto" data-act="woHist" data-id="${x.id}">${woOpen === x.id ? 'Ocultar progreso' : 'Progreso'}</button></div>
+      ${hist}</div>`;
+  }).join('');
+  const done = list.filter((x) => dayLog[x.id]).length;
+  return `${head}<div class="row between" style="margin:16px 0 0"><h2>${done} de ${list.length} hechos</h2><button class="btn ghost" data-act="woEdit">Editar ejercicios</button></div>
+    <p class="mut" style="margin:4px 0 0">Si repites lo de la última vez, pulsa «Hecho». Repeticiones distintas por serie: «10, 8, 6».</p>
+    ${cards}`;
+}
+// Guarda un ejercicio con lo que hay en sus casillas; null si las repeticiones no se entienden.
+function woRead(x) { return L.cleanSet(x.name, $('#wo_s_' + x.id).value, $('#wo_r_' + x.id).value, $('#wo_k_' + x.id).value); }
+const woFind = (id) => (wo().ex[L.parse(woKey()).getDay()] || []).find((x) => x.id === id);
 
 /* --- Comida con IA --- */
 $('#fPhoto').addEventListener('change', (e) => { photo = e.target.files[0] || null; setMsg(photo ? 'Foto lista. Pulsa «Estimar con IA».' : ''); });

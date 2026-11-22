@@ -49,6 +49,41 @@
     return w;
   }
 
+  /* ---------- Entreno: series, repeticiones y peso por ejercicio (db.workout, solo en el móvil) ---------- */
+  // Registro de un ejercicio en un día: {n: nombre, s: series, r: [repeticiones], kg}. r con un valor = igual en todas las series.
+  // «10» → [10]; «10, 8, 6» o «10/8/6» → [10, 8, 6]; vacío o sin números → null.
+  function parseReps(t) {
+    const r = String(t ?? '').split(/[\s,/;x×-]+/).filter(Boolean).map(Number);
+    return r.length && r.every((x) => Number.isInteger(x) && x > 0 && x < 1000) ? r : null;
+  }
+  // Deja un registro coherente: si hay varias repeticiones, las series son tantas como valores.
+  function cleanSet(n, s, r, kg) {
+    const reps = Array.isArray(r) ? r : parseReps(r);
+    if (!reps) return null;
+    const series = reps.length > 1 ? reps.length : Math.max(1, Math.min(50, Math.round(Number(s) || 1)));
+    const w = Number(String(kg ?? '').replace(',', '.'));
+    return { n: String(n || ''), s: series, r: reps, kg: w > 0 && w < 1000 ? Math.round(w * 100) / 100 : 0 };
+  }
+  // «3 × 10 · 40 kg», «10/8/6 · 40 kg», «3 × 15 · sin peso».
+  function fmtSet(e) {
+    if (!e) return '';
+    const reps = e.r.length > 1 ? e.r.join('/') : `${e.s} × ${e.r[0]}`;
+    return `${reps} · ${e.kg ? `${String(e.kg).replace('.', ',')} kg` : 'sin peso'}`;
+  }
+  // Sesiones de un ejercicio, de la más reciente a la más antigua (antes de `before` si se indica).
+  function exHistory(log, id, before) {
+    return Object.keys(log || {}).filter((k) => log[k][id] && (!before || k < before)).sort().reverse().map((k) => ({ key: k, e: log[k][id] }));
+  }
+  // Mejor marca: el mayor peso (y, a igual peso, más repeticiones en una serie).
+  function exBest(log, id) {
+    let best = null;
+    for (const h of exHistory(log, id)) {
+      const top = Math.max(...h.e.r);
+      if (!best || h.e.kg > best.e.kg || (h.e.kg === best.e.kg && top > Math.max(...best.e.r))) best = h;
+    }
+    return best;
+  }
+
   // Presupuesto de la semana de `todayKey` y objetivo de hoy tras repartir lo gastado.
   function plan(db, todayKey) {
     const s = db.settings;
@@ -235,6 +270,6 @@
     return lines.join('\r\n') + '\r\n';
   }
 
-  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek };
+  const L = { iso, parse, addDays, weekStart, dayRO, tot, gymDelta, plan, norm, search, PDAYS, PMEALS, readPlan, planWeek, planDay, planWeekStats, lastWeight, shopFriday, shopDays, splitTag, shopItems, icsReminders, mealIngredients, RTYPES, isStrength, routineOf, gymWeek, parseReps, cleanSet, fmtSet, exHistory, exBest };
   if (typeof module !== 'undefined') module.exports = L; else root.L = L;
 })(typeof window !== 'undefined' ? window : globalThis);

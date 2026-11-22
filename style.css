@@ -106,6 +106,17 @@ video{width:100%;border-radius:12px;margin-top:8px;background:#000}
 .tip{margin:0 0 8px;font-size:13px;color:var(--green);background:#E6F1EC;border-radius:10px;padding:8px 10px}
 .rut{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:6px 8px;align-items:end;margin-top:4px}
 .rut label{grid-column:1/-1;margin:10px 0 0}
+/* Entreno */
+.link{border:0;background:transparent;color:var(--green);font:600 13px inherit;font-family:inherit;padding:6px 0 0;cursor:pointer;min-height:32px}
+.ex{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
+.ex.done{border-color:var(--green);background:#F3F8F5}
+.ex b{font-size:15px}
+.exin{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.3fr) minmax(0,.9fr);gap:8px}
+.exin label{margin:10px 0 4px;font-size:12px}
+.exedit{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 44px;gap:6px;margin-top:8px}
+.btn[disabled]{opacity:.35;cursor:default}
+.exhist{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+.hrow{font-size:13px;margin-top:4px}
 /* Recordatorios */
 .card.due{border-color:var(--orange);background:#FBF1EA}
 .pmeal.due h2{color:var(--orange)}
