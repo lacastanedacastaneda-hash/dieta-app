@@ -206,12 +206,13 @@ function remCard() {
     <p class="mut">Gimnasio: ${esc(days || 'ningún día')}. Las horas también sirven para los avisos de «Hoy» al abrir la app.</p>
     <button class="btn" type="submit">Guardar horas</button>
     <button class="btn primary big" type="button" data-act="ics">Descargar recordatorios para el calendario</button>
-    <details class="how"><summary>Cómo añadirlos a Google Calendar</summary>
-      <p class="mut">La app de Google Calendar del móvil no importa este archivo, y al importarlo Google usa el aviso por defecto del calendario. Desde un ordenador:</p>
-      <ol class="mut"><li>Entra en calendar.google.com, crea un calendario nuevo llamado «Mi comida».</li>
-      <li>En su configuración, pon como notificación por defecto «0 minutos antes».</li>
-      <li>Configuración > Importar y exportar: elige el archivo y el calendario «Mi comida».</li></ol>
-      <p class="mut">Si tu calendario del móvil abre el archivo directamente, también vale. Para cambiar las horas, borra el calendario «Mi comida» y vuelve a importarlo.</p></details>
+    <details class="how"><summary>Cómo añadirlos a Outlook</summary>
+      <p class="mut">Desde Outlook en la web (outlook.com o el de tu empresa), en un ordenador:</p>
+      <ol class="mut"><li>Pasa el archivo descargado al ordenador.</li>
+      <li>En Calendario, pulsa «Agregar calendario» y crea un calendario en blanco llamado «Mi comida».</li>
+      <li>En «Agregar calendario», elige «Cargar desde archivo», selecciona el archivo y el calendario «Mi comida».</li>
+      <li>Abre un evento y comprueba que el recordatorio es «En el momento del evento». Si no, edita la serie y cámbialo (son 5 series).</li></ol>
+      <p class="mut">Usa un calendario aparte, no el principal: para cambiar las horas, borra «Mi comida» y vuelve a importar el archivo. Los nombres de los botones pueden variar un poco según la versión de Outlook.</p></details>
   </form>`;
 }
 function downloadIcs() {
