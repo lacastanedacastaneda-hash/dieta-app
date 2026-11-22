@@ -1,10 +1,13 @@
-# Actualiza el catálogo de Mercadona (datos/mercadona.json) cada jueves por la noche.
-# También se puede lanzar a mano: pestaña Actions > Catálogo Mercadona > Run workflow.
+# Catálogo de Mercadona (datos/mercadona.json).
+# - Jueves por la noche: precios del catálogo + datos nutricionales.
+# - Cada día: datos nutricionales que falten (poco a poco, según la cuota gratuita de la IA).
+# También se puede lanzar a mano: pestaña Actions > Catálogo Mercadona > Run workflow (hace las dos cosas).
 name: Catálogo Mercadona
 
 on:
   schedule:
-    - cron: '0 21 * * 4' # jueves 21:00 UTC (22:00 o 23:00 en España)
+    - cron: '0 21 * * 4' # jueves 21:00 UTC (22:00 o 23:00 en España): catálogo y nutrición
+    - cron: '0 5 * * *' # cada día 05:00 UTC: solo nutrición
   workflow_dispatch:
 
 permissions:
@@ -17,20 +20,28 @@ concurrency:
 jobs:
   catalogo:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Descargar catálogo
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 21 * * 4'
         run: node scripts/mercadona.mjs
+      - name: Datos nutricionales
+        # Si falla, no impide guardar el catálogo.
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node scripts/nutricion.mjs --minutos 150
       - name: Guardar si ha cambiado
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add datos/mercadona.json
           if git diff --cached --quiet; then echo "Sin cambios"; exit 0; fi
-          git commit -m "Catálogo Mercadona $(date -u +%F)"
+          git commit -m "Datos Mercadona $(date -u +%F)"
           git pull --rebase
           git push

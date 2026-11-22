@@ -343,6 +343,15 @@ async function pickMerc(mid) {
   $('#nName').value = `${p.name} · ${p.fmt}`;
   $('#nKcal').value = ''; $('#nP').value = 0; $('#nC').value = 0; $('#nF').value = 0; $('#nUnit').value = '';
   $('#btnReadLabel').hidden = !mercLabel;
+  // Datos ya leídos por el script semanal (Open Food Facts o IA): se rellenan al momento.
+  const n = p.nut;
+  if (n) {
+    fillNew({ kcal: n.kcal, p: n.p, c: n.c, f: n.f, unitG: n.u });
+    const src = n.src === 'off' ? 'Open Food Facts' : 'la IA, de la foto de Mercadona';
+    return setNew(n.dud
+      ? `Datos de ${src}, pero las kcal no cuadran con los macros: revísalos con la etiqueta${mercLabel ? ' o pulsa «Leer información nutricional»' : ''}.`
+      : `Datos de ${src}. Revísalos antes de guardar.`, !!n.dud);
+  }
   if (!mercLabel) return setNew('Este producto no tiene foto de la tabla nutricional. Escanea el envase, haz una foto de la etiqueta o escribe los datos.', true);
   setNew('Escribe el peso de una unidad o ración si lo sabes (opcional) y pulsa «Leer información nutricional».');
   $('#nUnit').focus();

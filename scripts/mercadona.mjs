@@ -91,6 +91,12 @@ async function main() {
   }
   console.log(`Fichas pedidas: ${asked} · con error: ${failed}`);
 
+  // Datos nutricionales ya leídos (scripts/nutricion.mjs): se conservan si no han cambiado la foto de la tabla ni el EAN.
+  for (const p of list.values()) {
+    const o = old.get(p.id);
+    if (o && o.label === p.label && o.ean === p.ean) for (const k of ['nut', 'off', 'iaFail']) if (k in o) p[k] = o[k];
+  }
+
   // Un producto por línea, para que en GitHub se vean bien los cambios de precio.
   const items = [...list.values()];
   const txt = `{"updated":"${new Date().toISOString()}","wh":"${WH}","img":"${IMG}","products":[\n${items.map((p) => JSON.stringify(p)).join(',\n')}\n]}\n`;
