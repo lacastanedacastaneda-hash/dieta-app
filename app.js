@@ -1,7 +1,7 @@
 /* Mi comida — fase 1. Todo se guarda en el móvil (localStorage). */
 const KEY = 'dieta.v1';
 const DEF = {
-  settings: { target: 2150, p: 140, c: 220, f: 65, gymKcal: 350, gymDays: [1, 2, 3, 4], floor: 1500, apiKey: '', model: 'gemini-flash-latest', startWeight: 100, goalWeight: 85 },
+  settings: { target: 2150, p: 140, c: 220, f: 65, gymKcal: 350, gymDays: [1, 2, 3, 4], floor: 1500, apiKey: '', model: 'gemini-flash-latest', orKey: '', orModel: 'google/gemma-4-31b-it:free', startWeight: 100, goalWeight: 85 },
   days: {},
   weights: {},
   products: {},
@@ -105,9 +105,13 @@ function viewAjustes() {
     <div class="two">${num('sTarget', 'Calorías base', s.target)}${num('sFloor', 'Mínimo diario', s.floor)}${num('sP', 'Proteína g', s.p)}${num('sC', 'Carbohidratos g', s.c)}${num('sF', 'Grasa g', s.f)}${num('sGym', 'kcal por sesión', s.gymKcal)}</div>
     <p class="mut">El mínimo evita que el ajuste semanal te deje un objetivo demasiado bajo en un día.</p>
     <div class="two">${num('sW0', 'Peso inicial kg', s.startWeight, 0.1)}${num('sW1', 'Peso objetivo kg', s.goalWeight, 0.1)}</div>
-    <h2 style="margin-top:18px">Estimación con IA (Gemini)</h2>
+    <h2 style="margin-top:18px">Inteligencia artificial: Gemini</h2>
     <label for="sKey">Clave de API de Gemini</label><input id="sKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="Pégala aquí (se guarda solo en este móvil)">
     <label for="sModel">Modelo</label><input id="sModel" type="text" value="${esc(s.model)}">
+    <h2 style="margin-top:18px">Alternativa: OpenRouter (opcional)</h2>
+    <p class="mut">Se usa solo si Gemini llega al límite gratuito o está saturado. Modelos gratuitos (terminan en «:free»); algunos proveedores gratuitos pueden guardar lo que envías.</p>
+    <label for="sOrKey">Clave de API de OpenRouter</label><input id="sOrKey" type="password" autocomplete="off" value="${esc(s.orKey)}" placeholder="Pégala aquí (se guarda solo en este móvil)">
+    <label for="sOrModel">Modelo</label><input id="sOrModel" type="text" value="${esc(s.orModel)}">
     <button class="btn primary big" type="submit">Guardar ajustes</button>
   </form>
   <form id="wForm" class="card"><h2>Peso de hoy</h2>
@@ -141,7 +145,7 @@ document.addEventListener('submit', (ev) => {
   if (ev.target.id === 'setForm') {
     ev.preventDefault();
     const g = (id) => Number($('#' + id).value);
-    Object.assign(db.settings, { target: g('sTarget'), floor: g('sFloor'), p: g('sP'), c: g('sC'), f: g('sF'), gymKcal: g('sGym'), startWeight: g('sW0'), goalWeight: g('sW1'), apiKey: $('#sKey').value.trim(), model: $('#sModel').value.trim() || DEF.settings.model });
+    Object.assign(db.settings, { target: g('sTarget'), floor: g('sFloor'), p: g('sP'), c: g('sC'), f: g('sF'), gymKcal: g('sGym'), startWeight: g('sW0'), goalWeight: g('sW1'), apiKey: $('#sKey').value.trim(), model: $('#sModel').value.trim() || DEF.settings.model, orKey: $('#sOrKey').value.trim(), orModel: $('#sOrModel').value.trim() || DEF.settings.orModel });
     save(); render();
   } else if (ev.target.id === 'wForm') {
     ev.preventDefault();
@@ -296,10 +300,10 @@ $('#nPhoto').addEventListener('change', async (e) => {
   const f = e.target.files[0]; if (!f) return;
   setNew('Leyendo la etiqueta…');
   try {
-    const o = await gemini([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(f, 1600) } }]);
+    const o = await ia([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(f, 1600) } }]);
     if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla. Prueba con más luz y la etiqueta recta.');
     fillNew({ name: o.name, kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
-    setNew('Leído de la etiqueta. Compruébalo con la tabla antes de guardar.');
+    setNew(`Leído de la etiqueta con ${aiVia}. Compruébalo con la tabla antes de guardar.`);
   } catch (err) { setNew(err.message, true); }
   e.target.value = '';
 });
@@ -341,11 +345,11 @@ async function pickMerc(mid) {
   try {
     let blob;
     try { blob = await (await fetch(`${c.img}${p.label}?fit=max&w=1600&h=1600`)).blob(); } catch (e) { throw new Error('No he podido descargar la foto de la etiqueta. Revisa la conexión.'); }
-    const o = await gemini([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(blob, 1600) } }]);
+    const o = await ia([{ text: LABEL_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: await shrink(blob, 1600) } }]);
     if (merc !== mine) return; // se ha elegido otro producto mientras tanto
     if (!(o.kcal >= 0)) throw new Error('No he podido leer la tabla en la foto de Mercadona. Escanea el envase o escribe los datos.');
     fillNew({ kcal: +o.kcal, p: +o.p, c: +o.c, f: +o.f, unitG: +o.unitG });
-    setMerc('Leído de la foto de Mercadona. Compruébalo abajo antes de guardar.');
+    setMerc(`Leído de la foto de Mercadona con ${aiVia}. Compruébalo abajo antes de guardar.`);
   } catch (err) {
     if (merc !== mine) return;
     setMerc(`${err.message} Para reintentarlo, toca otra vez el producto en la lista.`, true);
@@ -364,11 +368,11 @@ $('#btnEst').addEventListener('click', async () => {
       'Responde SOLO con JSON: {"name": string, "kcal": number, "p": number, "c": number, "f": number} (p, c, f = gramos de proteína, carbohidratos y grasa). ' +
       'Descripción: ' + (text || '(mira la foto)') }];
     if (photo) parts.push({ inline_data: { mime_type: 'image/jpeg', data: await shrink(photo) } });
-    const r = await gemini(parts);
+    const r = await ia(parts);
     if (!(r.kcal >= 0)) throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.');
     $('#fName').value = r.name || text || 'Comida';
     $('#fKcal').value = Math.round(r.kcal); $('#fP').value = Math.round(r.p || 0); $('#fC').value = Math.round(r.c || 0); $('#fF').value = Math.round(r.f || 0);
-    setMsg('Estimación de la IA: revísala y corrígela si hace falta.');
+    setMsg(`Estimación de la IA (${aiVia}): revísala y corrígela si hace falta.`);
   } catch (e) { setMsg(e.message, true); }
 });
 
@@ -405,17 +409,29 @@ const callGemini = (model, parts, key) => fetch(`${API}/models/${encodeURICompon
   method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
   body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } }),
 });
-// Modelos "flash" disponibles para la clave, el "latest" primero y luego los más nuevos.
+// Modelos "flash" disponibles para la clave: el "latest" primero, luego los más nuevos y los "lite" al final.
 async function flashModels(key) {
   try {
     const j = await (await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } })).json();
-    const ok = (j.models || []).filter((m) => m.supportedGenerationMethods?.includes('generateContent') && /flash/.test(m.name) && !/(lite|image|tts|live|audio|embedding)/.test(m.name)).map((m) => m.name.replace('models/', ''));
-    return ok.sort().reverse().sort((a, b) => /latest/.test(b) - /latest/.test(a));
+    const ok = (j.models || []).filter((m) => m.supportedGenerationMethods?.includes('generateContent') && /flash/.test(m.name) && !/(image|tts|live|audio|embedding)/.test(m.name)).map((m) => m.name.replace('models/', ''));
+    const rank = (n) => (/latest/.test(n) ? 0 : /lite/.test(n) ? 2 : 1);
+    return ok.sort().reverse().sort((a, b) => rank(a) - rank(b));
   } catch (e) { return []; }
 }
-async function gemini(parts) {
+const BUSY = [429, 500, 503]; // límite de uso o servicio saturado
+// Error que permite pasar a OpenRouter (límite o saturación); los demás (clave mal, etc.) se enseñan tal cual.
+const busyErr = (msg) => Object.assign(new Error(msg), { busy: true });
+// Lee la respuesta de la IA aunque venga entre ```json ... ``` o con texto alrededor.
+function parseAI(raw) {
+  const t = String(raw || '').replace(/```(json)?/g, '').trim();
+  let o;
+  try { o = JSON.parse(t); } catch (e) { const m = t.match(/[[{][\s\S]*[\]}]/); try { o = m && JSON.parse(m[0]); } catch (e2) { o = null; } }
+  if (!o) throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.');
+  return Array.isArray(o) ? o[0] || {} : o;
+}
+
+async function askGemini(parts) {
   const s = db.settings;
-  if (!s.apiKey) throw new Error('Falta la clave de Gemini en Ajustes. Mientras tanto, rellena los campos a mano.');
   const call = async (m) => { try { return await callGemini(m, parts, s.apiKey); } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); } };
   let r = await call(s.model);
   // Si el modelo guardado ya no existe (404), busca uno "flash" disponible y lo guarda.
@@ -423,24 +439,76 @@ async function gemini(parts) {
     const m = (await flashModels(s.apiKey))[0];
     if (m) { s.model = m; save(); r = await call(m); }
   }
-  // 503/500: Gemini saturado; 429: límite por minuto. Suele pasarse en unos segundos: se reintenta dos veces.
-  for (const wait of [3000, 8000]) {
-    if (![429, 500, 503].includes(r.status)) break;
-    await sleep(wait); r = await call(s.model);
-  }
-  // Si ese modelo sigue saturado, se prueba con otros dos "flash" (sin cambiar el de Ajustes).
-  if (r.status === 503 || r.status === 500) {
+  // Saturado (503/500): un reintento tras 3 s. Con 429 (límite) no se reintenta el mismo modelo: solo gastaría cuota.
+  if (r.status === 503 || r.status === 500) { await sleep(3000); r = await call(s.model); }
+  // Cada modelo de Gemini tiene su propia cuota gratuita: se prueba con otros dos (sin cambiar el de Ajustes).
+  if (BUSY.includes(r.status)) {
     for (const m of (await flashModels(s.apiKey)).filter((x) => x !== s.model).slice(0, 2)) {
       r = await call(m);
-      if (r.status !== 503 && r.status !== 500) break;
+      if (!BUSY.includes(r.status)) break;
     }
   }
-  if (r.status === 503 || r.status === 500) throw new Error('Gemini está saturado ahora mismo. Inténtalo otra vez en unos minutos.');
-  if (r.status === 429) throw new Error('Has llegado al límite gratuito de Gemini por ahora. Espera un rato o rellena los datos a mano.');
+  if (r.status === 429) throw busyErr('Has llegado al límite gratuito de Gemini por ahora.');
+  if (r.status === 503 || r.status === 500) throw busyErr('Gemini está saturado ahora mismo.');
   if (!r.ok) throw new Error(`Gemini respondió ${r.status}. Revisa la clave y el modelo en Ajustes.`);
   const j = await r.json();
-  const raw = j.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  try { const o = JSON.parse(raw.replace(/^```json|```$/g, '').trim()); return Array.isArray(o) ? o[0] || {} : o; } catch (e) { throw new Error('No he entendido la respuesta de la IA. Inténtalo otra vez.'); }
+  return parseAI(j.candidates?.[0]?.content?.parts?.[0]?.text);
+}
+
+/* ---------- OpenRouter (modelos gratuitos ":free"; se usa si Gemini llega al límite o está saturado) ---------- */
+const OR = 'https://openrouter.ai/api/v1';
+// Pasa el formato de Gemini ({text} / {inline_data}) al de OpenRouter.
+const orContent = (parts) => parts.map((p) => (p.inline_data
+  ? { type: 'image_url', image_url: { url: `data:${p.inline_data.mime_type};base64,${p.inline_data.data}` } }
+  : { type: 'text', text: p.text }));
+const callOR = (model, parts, key) => fetch(`${OR}/chat/completions`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'Mi comida' },
+  body: JSON.stringify({ model, temperature: 0, messages: [{ role: 'user', content: orContent(parts) }] }),
+});
+// Modelos gratuitos que aceptan imágenes (la lista de OpenRouter es pública).
+async function freeVisionModels() {
+  try {
+    const j = await (await fetch(`${OR}/models`)).json();
+    return (j.data || []).filter((m) => m.id.endsWith(':free') && (m.architecture?.input_modalities || []).includes('image')).map((m) => m.id);
+  } catch (e) { return []; }
+}
+async function askOpenRouter(parts) {
+  const s = db.settings;
+  const call = async (m) => {
+    let r;
+    try { r = await callOR(m, parts, s.orKey); } catch (e) { throw new Error('Sin conexión. Rellena los campos a mano.'); }
+    const j = await r.json().catch(() => ({}));
+    // A veces el error llega con estado 200 y un objeto "error".
+    return { status: j.error ? Number(j.error.code) || 500 : r.status, j };
+  };
+  let { status, j } = await call(s.orModel);
+  // Modelo que ya no existe o no está disponible (400/404) o con límite/saturado: se prueba con otros dos gratuitos.
+  if ([400, 404, ...BUSY].includes(status)) {
+    const wasGone = status === 400 || status === 404; // el modelo de Ajustes no sirve: se guarda el que funcione
+    for (const m of (await freeVisionModels()).filter((x) => x !== s.orModel).slice(0, 2)) {
+      ({ status, j } = await call(m));
+      if (status === 200) { if (wasGone) { s.orModel = m; save(); } break; }
+    }
+  }
+  if (status === 401) throw new Error('La clave de OpenRouter no es válida. Revísala en Ajustes.');
+  if (status === 429) throw new Error('También has llegado al límite gratuito de OpenRouter por hoy.');
+  if (status !== 200) throw new Error(`OpenRouter respondió ${status}. Revisa la clave y el modelo en Ajustes.`);
+  const c = j.choices?.[0]?.message?.content;
+  return parseAI(Array.isArray(c) ? c.map((x) => x.text || '').join('') : c);
+}
+
+// Pregunta a la IA: primero Gemini y, si llega al límite o está saturado, OpenRouter. aiVia dice cuál respondió.
+let aiVia = '';
+async function ia(parts) {
+  const s = db.settings;
+  if (!s.apiKey && !s.orKey) throw new Error('Falta una clave de IA en Ajustes (Gemini u OpenRouter). Mientras tanto, rellena los campos a mano.');
+  if (s.apiKey) {
+    try { const o = await askGemini(parts); aiVia = 'Gemini'; return o; } catch (e) {
+      if (!e.busy) throw e;
+      if (!s.orKey) throw new Error(`${e.message} Inténtalo más tarde, rellena los datos a mano o añade una clave de OpenRouter en Ajustes.`);
+    }
+  }
+  const o = await askOpenRouter(parts); aiVia = 'OpenRouter'; return o;
 }
 
 render();
