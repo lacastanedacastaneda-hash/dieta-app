@@ -1,13 +1,15 @@
 # Catálogo de Mercadona (datos/mercadona.json).
 # - Jueves por la noche: precios del catálogo + datos nutricionales.
-# - Cada día: datos nutricionales que falten (poco a poco, según la cuota gratuita de la IA).
+# - Cada día a las 09:00 UTC: datos nutricionales que falten (poco a poco, según la cuota gratuita de la IA).
 # También se puede lanzar a mano: pestaña Actions > Catálogo Mercadona > Run workflow (hace las dos cosas).
 name: Catálogo Mercadona
 
 on:
   schedule:
     - cron: '0 21 * * 4' # jueves 21:00 UTC (22:00 o 23:00 en España): catálogo y nutrición
-    - cron: '0 5 * * *' # cada día 05:00 UTC: solo nutrición
+    # Cada día 09:00 UTC (10:00 en España en invierno, 11:00 en verano): solo nutrición. Después del reinicio de la
+    # cuota gratuita de Gemini (medianoche del Pacífico = 08:00 UTC en invierno, 07:00 en verano).
+    - cron: '0 9 * * *'
   workflow_dispatch:
 
 permissions:
