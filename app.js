@@ -301,7 +301,7 @@ function render() {
 /* ---------- Acciones ---------- */
 document.addEventListener('click', (ev) => {
   const nav = ev.target.closest('[data-nav]');
-  if (nav) { view = nav.dataset.nav; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; } render(); window.scrollTo(0, 0); return; }
+  if (nav) { view = nav.dataset.nav; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woBig = null; } render(); window.scrollTo(0, 0); return; }
   const el = ev.target.closest('[data-act]');
   if (!el) return;
   const k = todayKey();
@@ -352,6 +352,7 @@ document.addEventListener('click', (ev) => {
     case 'woDay': { const dd = Number(el.dataset.d); woOff = dd ? Math.min(0, woOff + dd) : 0; woEdit = false; woOpen = null; render(); window.scrollTo(0, 0); break; }
     case 'woEdit': woEdit = !woEdit; render(); break;
     case 'woHist': woOpen = woOpen === el.dataset.id ? null : el.dataset.id; render(); break;
+    case 'woImg': woBig = woBig === el.dataset.id ? null : el.dataset.id; render(); break;
     case 'woDone': {
       const x = woFind(el.dataset.id); if (!x) break;
       const e = woRead(x);
@@ -751,7 +752,7 @@ function renderShopRes() {
 document.addEventListener('input', (ev) => { if (ev.target.id === 'shopQ') renderShopRes(); });
 
 /* ---------- Entreno: tus ejercicios por día de la semana, con series, repeticiones y peso ---------- */
-let woOff = 0, woEdit = false, woOpen = null; // días respecto a hoy (≤ 0); editando ejercicios; ejercicio con el progreso abierto
+let woOff = 0, woEdit = false, woOpen = null, woBig = null; // días respecto a hoy (≤ 0); editando ejercicios; ejercicio con el progreso abierto; ejercicio con la foto grande
 const wo = () => { db.workout = db.workout || {}; db.workout.ex = db.workout.ex || {}; db.workout.log = db.workout.log || {}; return db.workout; };
 const woKey = () => L.iso(L.addDays(L.parse(todayKey()), woOff));
 const woId = () => `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -794,7 +795,7 @@ function viewEntreno() {
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="-1" aria-label="Subir" ${i ? '' : 'disabled'}>↑</button>
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="1" aria-label="Bajar" ${i < list.length - 1 ? '' : 'disabled'}>↓</button>
         <button class="btn sq" data-act="woDel" data-id="${x.id}" aria-label="Quitar ${esc(x.name)}">✕</button></div>
-        <div class="exmq">${mqSelect('wo_m_' + x.id, x.mq, dayG, '<option value="">Sin máquina</option>')}</div>`).join('')}
+        <div class="exmq">${mqOf(x) && mqOf(x).img ? `<img src="${esc(mqOf(x).img)}" alt="" loading="lazy">` : ''}${mqSelect('wo_m_' + x.id, x.mq, dayG, '<option value="">Sin máquina</option>')}</div>`).join('')}
       <label for="woMq">Añadir una máquina</label>
       ${mqSelect('woMq', '', dayG, '<option value="">Elige una máquina…</option>')}
       <label for="woNew">O escribe un ejercicio sin máquina</label>
@@ -814,10 +815,13 @@ function viewEntreno() {
       return `<div class="exhist">${best ? `<p style="margin:0 0 6px;font-size:13px"><b>Mejor marca:</b> ${L.fmtSet(best.e)} <span class="mut">(${fdate(best.key)})</span></p>` : ''}
         ${all.length ? all.slice(0, 8).map((h) => `<div class="row between hrow"><span class="mut">${fdate(h.key)}</span><span>${L.fmtSet(h.e)}</span></div>`).join('') : '<p class="mut" style="margin:0">Aún no hay sesiones.</p>'}</div>`;
     })() : '';
+    const pic = m && m.img ? `<button class="exthumb" data-act="woImg" data-id="${x.id}" aria-label="${woBig === x.id ? 'Ocultar' : 'Ver'} la foto de la máquina"><img src="${esc(m.img)}" alt="" loading="lazy"></button>` : '';
     return `<div class="ex ${e ? 'done' : ''}">
+      <div class="exhead">${pic}<div style="flex:1;min-width:0">
       <div class="row between"><b>${esc(x.name)}</b>${e ? '<span class="ok">✓ Hecho</span>' : ''}</div>
       ${m ? `<p class="mut" style="margin:2px 0 0">${esc(m.marca)} ${esc(m.modelo || '')}${musc ? ` · ${esc(musc)}` : ''}</p>` : ''}
-      <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p>
+      <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p></div></div>
+      ${woBig === x.id && m && m.img ? `<button class="exbig" data-act="woImg" data-id="${x.id}" aria-label="Ocultar la foto"><img src="${esc(m.img)}" alt="${esc(m.nombre)}"></button>` : ''}
       <div class="exin">
         <div><label for="wo_s_${x.id}">Series</label><input id="wo_s_${x.id}" type="number" inputmode="numeric" min="1" value="${base ? base.s : 3}"></div>
         <div><label for="wo_r_${x.id}">Repeticiones</label><input id="wo_r_${x.id}" type="text" inputmode="numeric" autocomplete="off" value="${base ? base.r.join(', ') : '10'}"></div>
