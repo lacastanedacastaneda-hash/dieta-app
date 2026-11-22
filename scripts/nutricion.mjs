@@ -3,6 +3,7 @@
 //   2) Si no está: IA leyendo la foto de la tabla nutricional (Gemini; OpenRouter si Gemini llega al límite).
 // Las claves llegan como variables de entorno (secrets de GitHub): GEMINI_API_KEY y OPENROUTER_API_KEY (opcional).
 // Sin claves, solo usa Open Food Facts. Va poco a poco: lo que no termine hoy lo sigue mañana.
+// Salta las categorías que no son comida (SKIP) y empieza por las de un plan de comidas (PRIORITY).
 // Uso: node scripts/nutricion.mjs [--max-off N] [--max-ia N] [--minutos M]
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -13,6 +14,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const OFF_PAUSE = 1500; // Open Food Facts limita las consultas por minuto; si responde 429, la pausa se alarga
 const IA_PAUSE = 4500; // el plan gratuito de Gemini limita las peticiones por minuto
 const MAX_FAILS = 3; // tras 3 lecturas fallidas de un producto, no se vuelve a intentar
+
+// Categorías de Mercadona (primer nivel) que no son comida: no tienen tabla nutricional, se saltan.
+export const SKIP = new Set(['Cuidado facial y corporal', 'Limpieza y hogar', 'Cuidado del cabello', 'Maquillaje', 'Mascotas', 'Fitoterapia y parafarmacia']);
+// Orden de trabajo: primero lo que más se usa en un plan de comidas; el resto de categorías, después y en el orden del catálogo.
+export const PRIORITY = ['Huevos, leche y mantequilla', 'Postres y yogures', 'Carne', 'Marisco y pescado', 'Fruta y verdura',
+  'Conservas, caldos y cremas', 'Cereales y galletas', 'Panadería y pastelería', 'Zumos', 'Charcutería y quesos', 'Congelados', 'Pizzas y platos preparados'];
+const topCat = (p) => String(p.cat || '').split(' › ')[0];
+// Productos de alimentación en el orden en que se procesan (mismos objetos: los cambios se guardan en el catálogo).
+export function workOrder(products) {
+  const rank = (p) => { const i = PRIORITY.indexOf(topCat(p)); return i < 0 ? PRIORITY.length : i; };
+  return products.map((p, i) => [p, i]).filter(([p]) => !SKIP.has(topCat(p)))
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([p]) => p);
+}
 
 export const PROMPT = 'Lee la tabla de información nutricional de esta etiqueta de un producto de supermercado. ' +
   'Responde SOLO con JSON: {"kcal": number, "p": number, "c": number, "f": number, "u": number o null}. ' +
@@ -155,7 +169,8 @@ async function main() {
   };
   const put = (p, n, src) => { p.nut = { ...n, src, ...(plausible(n) ? {} : { dud: true }) }; delete p.off; delete p.iaFail; if (p.nut.dud) st.dud++; };
 
-  for (const p of data.products) {
+  const work = workOrder(data.products);
+  for (const p of work) {
     if (p.nut) continue;
     if (Date.now() > deadline) { console.log('Se acabó el tiempo de hoy; sigo en la próxima ejecución.'); break; }
     // 1) Open Food Facts (una sola vez por producto)
@@ -181,9 +196,10 @@ async function main() {
   }
 
   await writeFile(FILE, toText(data));
-  const total = data.products.length, con = data.products.filter((p) => p.nut).length;
+  const total = work.length, con = work.filter((p) => p.nut).length;
   console.log(`Open Food Facts: ${st.offOk} de ${st.off} · IA: ${st.iaOk} de ${st.ia} (fallos ${st.fail}) · dudosos nuevos: ${st.dud}`);
-  console.log(`Con datos nutricionales: ${con} de ${total} (${Math.round((con / total) * 100)} %)`);
+  console.log(`Con datos nutricionales: ${con} de ${total} productos de alimentación (${Math.round((con / total) * 100)} %); ${data.products.length - total} no son comida y se saltan.`);
+  for (const c of PRIORITY) { const ps = work.filter((p) => topCat(p) === c); if (ps.length) console.log(`  ${c}: ${ps.filter((p) => p.nut).length} de ${ps.length}`); }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => { console.error('Error:', e.message); process.exit(1); });
