@@ -11,6 +11,8 @@ const DEF = {
 };
 let db = load();
 let view = 'hoy';
+let semOff = 0; // «Semana»: semanas respecto a la actual (≤ 0)
+const SEM_MAX = 52; // hasta cuántas semanas hacia atrás
 let photo = null;
 
 function load() {
@@ -137,18 +139,24 @@ function viewHoy() {
 }
 
 function viewSemana() {
-  const k = todayKey(), s = db.settings, p = L.plan(db, k);
+  // t0 = hoy; k = día de referencia de la semana que se ve (en semanas pasadas, su domingo: cuentan los 7 días).
+  const t0 = todayKey(), s = db.settings;
+  const k = semOff ? L.iso(L.addDays(L.weekStart(L.parse(t0)), 7 * semOff + 6)) : t0, p = L.plan(db, k);
+  const ws = L.weekStart(L.parse(k)), we = L.addDays(ws, 6);
+  const sub = semOff ? `Semana del ${ws.getMonth() === we.getMonth() ? ws.getDate() : ws.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} al ${we.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}` : 'Semana actual';
+  const navBtns = `<div class="row" style="margin-top:10px"><button class="btn ghost" data-act="semWk" data-d="-1" ${semOff <= -SEM_MAX ? 'disabled' : ''}>‹ Anterior</button>
+    ${semOff < 0 ? '<button class="btn ghost" data-act="semWk" data-d="0">Actual</button><button class="btn ghost" style="margin-left:auto" data-act="semWk" data-d="1">Siguiente ›</button>' : ''}</div>`;
   const tots = p.keys.map((kk) => L.tot(db, kk).kcal);
   const max = Math.max(2600, ...tots) * 1.05, H = 140;
   const bars = p.keys.map((kk, i) => {
     const d = L.dayRO(db, kk), hasExtra = d.entries.some((e) => e.extra);
     if (!d.entries.length) return '<div class="b e"></div>';
-    return `<div class="b ${kk === k ? 'now' : hasExtra ? 'x' : ''}" style="height:${Math.round((tots[i] / max) * H)}px" title="${n0(tots[i])} kcal"></div>`;
+    return `<div class="b ${kk === t0 ? 'now' : hasExtra ? 'x' : ''}" style="height:${Math.round((tots[i] / max) * H)}px" title="${n0(tots[i])} kcal"></div>`;
   }).join('');
-  const lbl = p.keys.map((kk, i) => `<span style="${kk === k ? 'font-weight:700;color:var(--ink)' : ''}">${DOW[i]}</span>`).join('');
+  const lbl = p.keys.map((kk, i) => `<span style="${kk === t0 ? 'font-weight:700;color:var(--ink)' : ''}">${DOW[i]}</span>`).join('');
   const extras = p.keys.flatMap((kk) => L.dayRO(db, kk).entries.filter((e) => e.extra));
   const gw = L.gymWeek(db, k);
-  const lw = L.lastWeight(db, k), wLast = lw ? lw.kg : null;
+  const lw = L.lastWeight(db, t0), wLast = lw ? lw.kg : null;
   const lost = wLast !== null ? s.startWeight - wLast : 0;
   const cal = `<section class="card"><div class="row between"><h2>Calorías por día</h2><span class="mut">Línea: ${n0(s.target)} kcal</span></div>
     <div class="chart"><div class="line" style="bottom:${Math.round((s.target / max) * H)}px"></div>${bars}</div>
@@ -169,15 +177,15 @@ function viewSemana() {
     ${every ? `<p class="${due ? 'hint err' : 'mut'}" style="margin:4px 0 0">${due
     ? `Toca pesarte (cada ${every} días)${lw ? `: la última vez fue hace ${lw.days} días` : ''}. Hazlo en Ajustes > Peso de hoy.`
     : `Última pesada hace ${lw.days} ${lw.days === 1 ? 'día' : 'días'}; la siguiente, dentro de ${every - lw.days}.`}</p>` : ''}</section>`;
-  if (!db.plan) return `<p class="sub">Semana actual</p><h1>Semana</h1>${cal}${gym}${peso}`;
-  return `<p class="sub">Semana actual · ${esc(L.planDay(db.plan, s.planSel, k).weekName)}</p><h1>Semana</h1>
+  if (!db.plan) return `<p class="sub">${sub}</p><h1>Semana</h1>${navBtns}${cal}${gym}${peso}`;
+  return `<p class="sub">${sub} · ${esc(L.planDay(db.plan, s.planSel, k).weekName)}</p><h1>Semana</h1>${navBtns}
   ${planWeekHtml(k)}${gym}${peso}
   <h2 style="margin:22px 0 0">Calorías</h2><p class="mut" style="margin:2px 0 0">Solo cuentan las comidas y extras que apuntas con kcal.</p>${cal}`;
 }
 
 // «Semana» con plan: cumplimiento, desvíos y reglas.
 function planWeekHtml(k) {
-  const p = db.plan, st = L.planWeekStats(db, k);
+  const p = db.plan, st = L.planWeekStats(db, k, semOff < 0);
   const dots = st.dias.map((d, i) => `<div class="pday ${d.today ? 'now' : ''}">${d.meals.map((v) => `<i class="dot ${d.fut || d.pre ? 'fut' : v}"></i>`).join('')}<span>${DOW[i]}</span></div>`).join('');
   const RL = [['agua', 'Agua'], ['fruta', 'Fruta'], ['lacteo', 'Lácteos'], ['ensalada', 'Ensaladas']];
   const reglas = RL.map(([r, lab]) => `<div class="row between rl"><span>${lab} <span class="mut">(${p.reglas[r]} al día)</span></span><b>${st.reglas[r]} de ${st.elapsed} ${st.elapsed === 1 ? 'día' : 'días'}</b></div>`).join('');
@@ -301,7 +309,7 @@ function render() {
 /* ---------- Acciones ---------- */
 document.addEventListener('click', (ev) => {
   const nav = ev.target.closest('[data-nav]');
-  if (nav) { view = nav.dataset.nav; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woRows = {}; } render(); window.scrollTo(0, 0); return; }
+  if (nav) { view = nav.dataset.nav; semOff = 0; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woRows = {}; } render(); window.scrollTo(0, 0); return; }
   const el = ev.target.closest('[data-act]');
   if (!el) return;
   const k = todayKey();
@@ -333,6 +341,7 @@ document.addEventListener('click', (ev) => {
       d.cnt[key] = Math.max(0, (d.cnt[key] || 0) + Number(el.dataset.d));
       save(); render(); break;
     }
+    case 'semWk': { const dd = Number(el.dataset.d); semOff = dd ? Math.max(-SEM_MAX, Math.min(0, semOff + dd)) : 0; render(); window.scrollTo(0, 0); break; }
     case 'shopWk': { const dd = Number(el.dataset.d); shopOff = dd ? shopOff + dd : 0; shopPick = null; render(); window.scrollTo(0, 0); break; }
     case 'shopGot': case 'shopHave': { // en el carro / lo tengo en casa (tocar otra vez lo quita)
       const w = shopWeek(el.dataset.f), key = el.dataset.act === 'shopGot' ? 'got' : 'have', i = el.dataset.i;
@@ -426,7 +435,7 @@ document.addEventListener('submit', (ev) => {
   } else if (ev.target.id === 'wForm') {
     ev.preventDefault();
     const v = Number($('#wVal').value);
-    if (v > 0) { db.weights[todayKey()] = v; save(); view = 'semana'; render(); }
+    if (v > 0) { db.weights[todayKey()] = v; save(); view = 'semana'; semOff = 0; render(); }
   }
 });
 

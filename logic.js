@@ -233,9 +233,10 @@
   // Estados de una comida: ok = seguida; swap = seguida con cambio (cuenta como seguida y guarda qué faltó en day.swap);
   // cambio = cambiada; salto = me la salté.
   const PST = ['ok', 'swap', 'cambio', 'salto'];
-  function planWeekStats(db, k) {
+  // past = true: semana ya terminada; cuentan los 7 días completos y ninguno es «hoy».
+  function planWeekStats(db, k, past = false) {
     const p = db.plan, sel = db.settings.planSel, ws = weekStart(parse(k));
-    const keys = Array.from({ length: 7 }, (_, i) => iso(addDays(ws, i))), idx = keys.indexOf(k);
+    const keys = Array.from({ length: 7 }, (_, i) => iso(addDays(ws, i))), idx = past ? 7 : keys.indexOf(k);
     const st = { ok: 0, swap: 0, cambio: 0, salto: 0, sin: 0, total: 0, legumbres: 0, legumbresMenu: 0, reglas: {}, dias: [], elapsed: 0, faltas: {}, cambios: [] };
     for (const r of Object.keys(p.reglas)) st.reglas[r] = 0;
     keys.forEach((kk, i) => {
