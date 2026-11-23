@@ -11,6 +11,9 @@ const DEF = {
 };
 let db = load();
 let view = 'hoy';
+let hoyOff = 0; // «Hoy» con plan: días respecto a hoy (−7 a +7); los futuros solo se leen
+const HOY_MAX = 7;
+const hoyKey = () => L.iso(L.addDays(L.parse(todayKey()), hoyOff));
 let semOff = 0; // «Semana»: semanas respecto a la actual (≤ 0)
 const SEM_MAX = 52; // hasta cuántas semanas hacia atrás
 let photo = null;
@@ -74,18 +77,47 @@ function swapBox(m, d) {
     <input id="swPor_${m.key}" type="text" autocomplete="off" placeholder="Ej.: atún, 2 huevos" value="${esc(sw.por || '')}"></div>`;
 }
 const COUNTERS = [['agua', 'Agua', 'vasos'], ['fruta', 'Fruta', 'piezas'], ['lacteo', 'Lácteos', ''], ['ensalada', 'Ensaladas', '']];
+// Botones para moverse de día en «Hoy».
+function hoyNav() {
+  const b = (d, lab, extra = '') => `<button class="btn ghost" data-act="hoyDay" data-d="${d}" ${extra}>${lab}</button>`;
+  return `<div class="row" style="margin-top:10px">${b(-1, hoyOff === 0 ? '‹ Ayer' : '‹ Anterior', hoyOff <= -HOY_MAX ? 'disabled' : '')}
+    ${hoyOff ? b(0, 'Hoy') : ''}${b(1, hoyOff === 0 ? 'Mañana ›' : 'Siguiente ›', `style="margin-left:auto" ${hoyOff >= HOY_MAX ? 'disabled' : ''}`)}</div>`;
+}
+const hoyTitle = () => (hoyOff === 0 ? 'Hoy' : hoyOff === 1 ? 'Mañana' : hoyOff === -1 ? 'Ayer' : cap(fdate(hoyKey(), { weekday: 'long', day: 'numeric' })));
+// Día futuro: el menú solo para leer y prepararlo (ingredientes, legumbres, gimnasio).
+function viewDiaPlan(k) {
+  const s = db.settings, day = L.parse(k), pd = L.planDay(db.plan, s.planSel, k), rt = L.routineOf(s)[day.getDay()];
+  const tipCena = L.isStrength(rt.t) ? `Día de ${rt.t === 'piernas' ? 'piernas' : 'fuerza'}: cena con proteína${rt.t === 'piernas' ? ' y sin quedarte corto de hidratos' : ''}.` : '';
+  const meals = pd.meals.map((m) => {
+    const ing = L.mealIngredients(m);
+    return `<div class="pmeal">
+      <div class="row between"><h2>${m.meal}</h2>${m.libre ? '<span class="pill">Libre, con moderación</span>' : m.legumbres ? '<span class="pill">Legumbres</span>' : ''}</div>
+      <p class="ptext">${esc(m.text)}</p>
+      ${ing.length ? `<p class="mut" style="margin:0 0 8px">Ingredientes: ${esc(ing.join(', '))}</p>` : ''}
+      ${m.key === 'cena' && tipCena ? `<p class="tip">${tipCena}</p>` : ''}
+      ${db.plan.racionMaxG && m.key !== 'desayuno' ? `<p class="mut" style="margin:0 0 8px">Carne o pescado: hasta ${n0(db.plan.racionMaxG)} g</p>` : ''}
+    </div>`;
+  }).join('');
+  const gym = rt.t === 'descanso' ? 'Descanso' : `${RTLABEL[rt.t]}${rt.txt ? ` · ${esc(rt.txt)}` : ''}`;
+  return `<p class="sub">${cap(fdate(k, { weekday: 'long', day: 'numeric', month: 'long' }))} · ${esc(pd.weekName)}</p><h1>${hoyTitle()}</h1>${hoyNav()}
+  <section class="card"><h2>Menú ${hoyOff === 1 ? 'de mañana' : 'del día'}</h2>${meals}</section>
+  <section class="card"><p class="mut" style="margin:0">Gimnasio</p><p style="margin:2px 0 0;font-size:14px;font-weight:600">${gym}</p></section>
+  <p class="mut" style="margin:12px 0 0">Es un día futuro: podrás marcar las comidas cuando llegue.</p>`;
+}
 function viewHoyPlan() {
-  const k = todayKey(), now = new Date(), s = db.settings, d = L.dayRO(db, k);
+  const k = hoyKey();
+  if (hoyOff > 0) return viewDiaPlan(k);
+  const isToday = hoyOff === 0, now = isToday ? new Date() : L.parse(k), s = db.settings, d = L.dayRO(db, k);
   const pd = L.planDay(db.plan, s.planSel, k), st = d.plan || {}, cnt = d.cnt || {};
   const sched = s.gymDays.includes(now.getDay());
   // Avisos al abrir la app: comidas cuya hora ya pasó sin marcar, y la compra del viernes.
   const r = remOf(), mins = (hhmm) => { const [h, mm] = hhmm.split(':').map(Number); return h * 60 + mm; };
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const due = new Set(pd.meals.filter((m) => !st[m.key] && nowMin >= mins(r[m.key])).map((m) => m.key));
+  const due = new Set(isToday ? pd.meals.filter((m) => !st[m.key] && nowMin >= mins(r[m.key])).map((m) => m.key) : []);
   const dueNames = pd.meals.filter((m) => due.has(m.key)).map((m) => m.meal.toLowerCase());
   const yList = (a) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} y ${a[a.length - 1]}` : a[0]);
   const avisos = (dueNames.length ? `<section class="card due"><h2>Te falta marcar: ${yList(dueNames)}</h2><p class="mut" style="margin:4px 0 0">Pulsa «Seguida», «Cambiada» o «Me la salté» en el menú.</p></section>` : '')
-    + (now.getDay() === 5 && nowMin >= mins(r.compra) ? `<section class="card due row between"><div><h2>Hoy toca la compra</h2><p class="mut" style="margin:4px 0 0">Tu lista está en «Compra».</p></div><button class="btn primary" data-nav="compra">Ver lista</button></section>` : '');
+    + (isToday && now.getDay() === 5 && nowMin >= mins(r.compra) ? `<section class="card due row between"><div><h2>Hoy toca la compra</h2><p class="mut" style="margin:4px 0 0">Tu lista está en «Compra».</p></div><button class="btn primary" data-nav="compra">Ver lista</button></section>` : '');
   // Días de fuerza: la cena es la comida después de entrenar (y el día de piernas, sin quedarse corto de hidratos).
   const rt = L.routineOf(s)[now.getDay()];
   const tipCena = L.isStrength(rt.t) && d.gym !== 'no'
@@ -105,9 +137,9 @@ function viewHoyPlan() {
       <button class="btn" data-act="cnt" data-k="${key}" data-d="-1" aria-label="Quitar ${lab}">−</button><button class="btn" data-act="cnt" data-k="${key}" data-d="1" aria-label="Añadir ${lab}">+</button></div>`;
   }).join('');
   const t = L.tot(db, k), list = entriesHtml(d);
-  return `<p class="sub">${DOWFULL[now.getDay()]} · ${esc(pd.weekName)}${sched ? ' · día de gimnasio' : ''}</p><h1>Hoy</h1>
-  ${avisos}
-  <section class="card"><h2>Menú de hoy</h2>${meals}</section>
+  return `<p class="sub">${isToday ? DOWFULL[now.getDay()] : cap(fdate(k, { weekday: 'long', day: 'numeric', month: 'long' }))} · ${esc(pd.weekName)}${sched ? ' · día de gimnasio' : ''}</p><h1>${hoyTitle()}</h1>
+  ${hoyNav()}${avisos}
+  <section class="card"><h2>Menú ${isToday ? 'de hoy' : hoyOff === -1 ? 'de ayer' : 'del día'}</h2>${meals}</section>
   <section class="card"><h2>Reglas del día</h2>${rules}</section>
   ${gymCard(d, now)}
   <div class="row between" style="margin:18px 0 0"><h2>Cambios y extras</h2>${d.entries.length ? `<span class="mut">${n0(t.kcal)} kcal registradas</span>` : ''}</div>
@@ -309,11 +341,12 @@ function render() {
 /* ---------- Acciones ---------- */
 document.addEventListener('click', (ev) => {
   const nav = ev.target.closest('[data-nav]');
-  if (nav) { view = nav.dataset.nav; semOff = 0; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woRows = {}; } render(); window.scrollTo(0, 0); return; }
+  if (nav) { view = nav.dataset.nav; semOff = 0; hoyOff = 0; if (view === 'entreno') { woOff = 0; woEdit = false; woOpen = null; woRows = {}; } render(); window.scrollTo(0, 0); return; }
   const el = ev.target.closest('[data-act]');
   if (!el) return;
-  const k = todayKey();
+  const k = view === 'hoy' ? hoyKey() : todayKey(); // en «Hoy» se puede marcar un día pasado
   switch (el.dataset.act) {
+    case 'hoyDay': { const dd = Number(el.dataset.d); hoyOff = dd ? Math.max(-HOY_MAX, Math.min(HOY_MAX, hoyOff + dd)) : 0; render(); window.scrollTo(0, 0); break; }
     case 'gym': dayRW(k).gym = el.dataset.v || undefined; save(); render(); break;
     case 'light': dayRW(k).light = el.dataset.v || undefined; save(); render(); break;
     case 'del': { const d = dayRW(k); d.entries = d.entries.filter((e) => String(e.id) !== el.dataset.id); save(); render(); break; }
@@ -474,7 +507,7 @@ document.addEventListener('change', async (ev) => {
     const x = woFind(ev.target.id.slice(5).split('_')[0]);
     if (x) { woRows[x.id] = woRaw(x); woSaveDone(x); }
   } else if (ev.target.id.startsWith('swPor_')) { // «Lo cambié por» (se guarda al salir del campo, sin repintar)
-    const d = dayRW(todayKey()), m = ev.target.id.slice(6);
+    const d = dayRW(hoyKey()), m = ev.target.id.slice(6);
     d.swap = d.swap || {}; (d.swap[m] = d.swap[m] || {}).por = ev.target.value.trim(); save();
   } else if (ev.target.id === 'planSel') {
     const [mode, w] = ev.target.value.split(':');
@@ -939,7 +972,7 @@ $('#addForm').addEventListener('submit', (ev) => {
     if (!$('#fName').value.trim() || $('#fKcal').value === '') return setMsg('Falta el nombre y las kcal.', true);
     entry = { ...base, name: $('#fName').value.trim(), kcal: Number($('#fKcal').value) || 0, p: Number($('#fP').value) || 0, c: Number($('#fC').value) || 0, f: Number($('#fF').value) || 0 };
   } else return;
-  dayRW(todayKey()).entries.push(entry);
+  dayRW(view === 'hoy' && hoyOff < 0 ? hoyKey() : todayKey()).entries.push(entry); // un extra de ayer va a ayer
   save(); $('#dlg').close(); view = 'hoy'; render();
 });
 
