@@ -193,7 +193,7 @@ function planWeekHtml(k) {
   const ws = L.weekStart(L.parse(k)), we = L.addDays(ws, 6);
   const extras = st.dias.flatMap((d) => L.dayRO(db, d.key).entries).filter((e) => e.extra);
   return `<section class="card"><div class="row between"><h2>Cumplimiento del plan</h2><b class="big-pct">${st.pct === null ? '—' : st.pct + ' %'}</b></div>
-    <p class="mut" style="margin:2px 0 0">${st.pct === null ? 'Aún no has marcado ninguna comida esta semana.' : `${st.ok + st.swap} de ${st.total} comidas seguidas${st.swap ? ` (${st.swap} con cambio)` : ''}`}</p>
+    <p class="mut" style="margin:2px 0 0">${st.pct === null ? `${semOff < 0 ? 'No marcaste' : 'Aún no has marcado'} ninguna comida ${semOff < 0 ? 'esa' : 'esta'} semana.` : `${st.ok + st.swap} de ${st.total} comidas seguidas${st.swap ? ` (${st.swap} con cambio)` : ''}`}</p>
     <div class="pweek">${dots}</div>
     <p class="mut" style="margin:8px 0 0"><i class="dot ok"></i> seguida · <i class="dot swap"></i> con cambio · <i class="dot cambio"></i> cambiada o saltada · <i class="dot"></i> sin marcar</p></section>
   ${st.cambios.length ? `<section class="card"><h2>Seguidas con cambio</h2>
@@ -208,7 +208,7 @@ function planWeekHtml(k) {
   </div>
   <section class="card"><h2>Reglas</h2>${reglas}
     <div class="row between rl"><span>Legumbres <span class="mut">(máximo ${p.legumbresMax} a la semana)</span></span><b style="${legOver ? 'color:var(--orange)' : ''}">${st.legumbres} de ${p.legumbresMax}</b></div>
-    <p class="mut" style="margin:6px 0 0">Las legumbres cuentan al marcar «Seguida» una comida con legumbres (en el menú de esta semana hay ${st.legumbresMenu}). Semana del ${ws.getDate()} al ${we.getDate()}.</p></section>`;
+    <p class="mut" style="margin:6px 0 0">Las legumbres cuentan al marcar «Seguida» una comida con legumbres (en el menú de ${semOff < 0 ? 'esa' : 'esta'} semana hay ${st.legumbresMenu}). Semana del ${ws.getDate()} al ${we.getDate()}.</p></section>`;
 }
 
 // Ajustes > Plan de comidas: importar, elegir qué semana toca y quitar.
