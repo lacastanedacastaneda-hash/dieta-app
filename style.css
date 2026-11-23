@@ -115,6 +115,9 @@ video{width:100%;border-radius:12px;margin-top:8px;background:#000}
 .exin label{margin:10px 0 4px;font-size:12px}
 .exedit{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 44px;gap:6px;margin-top:8px}
 .btn[disabled]{opacity:.35;cursor:default}
+.lbl{font-size:13px;font-weight:600;margin:14px 0 6px}
+.mqg .chip{min-height:44px;padding:0 14px}
+.mqg .chip.on{background:var(--green);border-color:var(--green);color:#fff}
 .exmq{display:flex;align-items:center;gap:8px;margin:4px 0 6px}
 .exmq img{width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;flex:none}
 .exphoto{height:180px;margin:-4px 0 10px;border-radius:10px;background:#fff;overflow:hidden}

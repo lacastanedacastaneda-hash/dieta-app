@@ -361,17 +361,18 @@ document.addEventListener('click', (ev) => {
     case 'woDay': { const dd = Number(el.dataset.d); woOff = dd ? Math.min(0, woOff + dd) : 0; woEdit = false; woOpen = null; woRows = {}; render(); window.scrollTo(0, 0); break; }
     case 'woEdit': woEdit = !woEdit; render(); break;
     case 'woHist': woOpen = woOpen === el.dataset.id ? null : el.dataset.id; render(); break;
+    case 'woGrp': woGrp[L.parse(woKey()).getDay()] = el.dataset.g; render(); break;
     case 'woRowAdd': case 'woRowDel': { // añadir una serie (copia la última) o quitar una
       const x = woFind(el.dataset.id); if (!x) break;
       const rows = woRaw(x);
-      if (el.dataset.act === 'woRowAdd') rows.push({ ...(rows[rows.length - 1] || { r: '10', kg: '' }) });
+      if (el.dataset.act === 'woRowAdd') rows.push({ ...(rows[rows.length - 1] || { r: '12', kg: '' }) });
       else if (rows.length > 1) rows.splice(Number(el.dataset.i), 1);
       woRows[x.id] = rows; woSaveDone(x); render(); break;
     }
     case 'woDone': {
       const x = woFind(el.dataset.id); if (!x) break;
       const e = L.cleanRows(x.name, woRaw(x));
-      if (!e) { alert('Escribe las repeticiones de cada serie con un número entero, por ejemplo 10.'); break; }
+      if (!e) { alert('Escribe las repeticiones de cada serie con un número entero, por ejemplo 12.'); break; }
       const wk = woKey(), w = wo(); (w.log[wk] = w.log[wk] || {})[x.id] = e; delete woRows[x.id];
       // Al apuntar el entreno, la tarjeta del gimnasio (o la de la sesión ligera) se marca sola.
       const d = dayRW(wk), rt = L.routineOf(db.settings)[L.parse(wk).getDay()];
@@ -786,19 +787,36 @@ function loadMq() {
 }
 const mqOf = (x) => (x && x.mq && mqData ? mqData.by[x.mq] || null : null);
 const MQLOAD = { discos: 'Kg: solo los discos que pones, sin contar la máquina.', selectorizada: 'Kg: el número de la pila de placas.' };
-// Lista desplegable de máquinas: primero los grupos que tocan ese día según la rutina, luego el resto.
-function mqSelect(id, cur, dayG, first) {
+// «¿Qué vas a trabajar?»: grupos para elegir máquina, según la categoría de cada máquina (datos/maquinas.json).
+const MQGROUPS = ['Pecho', 'Espalda', 'Hombro', 'Brazos', 'Pierna', 'Glúteos', 'Cardio', 'Otros'];
+const MQCAT = { pecho: 'Pecho', espalda: 'Espalda', hombro: 'Hombro', brazos: 'Brazos', pierna: 'Pierna', 'glúteos': 'Glúteos', cardio: 'Cardio',
+  'espalda baja': 'Otros', abdomen: 'Otros', banco: 'Otros', 'multiestación': 'Otros', 'peso libre': 'Otros' };
+const mqGroup = (m) => MQCAT[m.cat] || 'Otros'; // una categoría nueva sin mapa cae en «Otros»: ninguna máquina se queda fuera
+// Grupo de la rutina (L.groupsIn) → grupo de máquinas. Estiramientos no tiene máquinas.
+const RT2MQ = { Pecho: 'Pecho', Espalda: 'Espalda', Hombros: 'Hombro', 'Tríceps': 'Brazos', 'Bíceps': 'Brazos', Piernas: 'Pierna', 'Glúteos': 'Glúteos', Cardio: 'Cardio', Abdominales: 'Otros', Lumbares: 'Otros' };
+let woGrp = {}; // último grupo elegido en esta sesión, por día de la semana
+// Grupo que toca ese día: el primero que nombra el texto de la rutina («piernas, glúteos…» → Pierna); «Otros» solo si no hay otro.
+function dayMqGroup(txt) {
+  const gs = String(txt || '').split(/[\s,;.()/]+/).flatMap((wd) => L.groupsIn(wd)).map((g) => RT2MQ[g]).filter(Boolean);
+  return gs.find((g) => g !== 'Otros') || gs[0] || '';
+}
+const curMqGroup = (dow, rt) => (woGrp[dow] !== undefined ? woGrp[dow] : dayMqGroup(rt.txt));
+// Botones de grupo, grandes para el dedo.
+function mqGroupChips(grp, dayDef) {
+  return `<div class="chips mqg" role="group" aria-label="¿Qué vas a trabajar?">${MQGROUPS.map((g) => `<button class="chip ${g === grp ? 'on' : ''}" data-act="woGrp" data-g="${g}" aria-pressed="${g === grp}">${g}${g === dayDef ? ' ·&nbsp;hoy' : ''}</button>`).join('')}</div>`;
+}
+// Lista desplegable con las máquinas del grupo; la ya elegida (`cur`) sale siempre, aunque sea de otro grupo.
+function mqSelect(id, cur, grp, first) {
   if (!mqData) return '<p class="mut" style="margin:6px 0 0">Cargando máquinas…</p>';
-  const by = {};
-  for (const m of mqData.list) { const g = L.exGroup(m.nombre, m) || 'Otras'; (by[g] = by[g] || []).push(m); }
-  const order = [...dayG, ...L.MGNAMES.filter((g) => !dayG.includes(g)), 'Otras'].filter((g) => by[g]);
   const opt = (m) => `<option value="${esc(m.id)}" ${m.id === cur ? 'selected' : ''}>${esc(m.nombre)} · ${esc(m.marca.split(' ')[0])} ${esc(m.modelo || '')}</option>`;
-  return `<select id="${id}">${first}${order.map((g) => `<optgroup label="${g}${dayG.includes(g) ? ' (toca este día)' : ''}">${by[g].map(opt).join('')}</optgroup>`).join('')}</select>`;
+  const inG = mqData.list.filter((m) => grp && mqGroup(m) === grp), sel = cur && mqData.by[cur];
+  const extra = sel && !inG.includes(sel) ? `<optgroup label="Elegida (${mqGroup(sel)})">${opt(sel)}</optgroup>` : '';
+  return `<select id="${id}">${first}${extra}${inG.length ? `<optgroup label="${grp}">${inG.map(opt).join('')}</optgroup>` : ''}</select>`;
 }
 function viewEntreno() {
   if (!mqData) loadMq().then((r) => { if (r && view === 'entreno') render(); });
   const k = woKey(), dow = L.parse(k).getDay(), w = wo(), rt = L.routineOf(db.settings)[dow];
-  const list = w.ex[dow] || [], dayLog = w.log[k] || {}, dayG = L.groupsIn(rt.txt);
+  const list = w.ex[dow] || [], dayLog = w.log[k] || {}, grp = curMqGroup(dow, rt), dayDef = dayMqGroup(rt.txt);
   const others = WEEK.filter((i) => i !== dow && (w.ex[i] || []).length);
   const copyBtns = others.length ? `<p class="mut" style="margin:10px 0 4px">O copia los de otro día (comparten historial):</p><div class="chips">${others.map((i) => `<button class="chip" data-act="woCopy" data-from="${i}">${cap(DOWFULL[i])}</button>`).join('')}</div>` : '';
   const head = `<p class="sub">${woOff === 0 ? 'Hoy' : cap(fdate(k, { weekday: 'long', day: 'numeric', month: 'long' }))} · ${RTLABEL[rt.t]}</p><h1>Entreno</h1>
@@ -812,9 +830,11 @@ function viewEntreno() {
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="-1" aria-label="Subir" ${i ? '' : 'disabled'}>↑</button>
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="1" aria-label="Bajar" ${i < list.length - 1 ? '' : 'disabled'}>↓</button>
         <button class="btn sq" data-act="woDel" data-id="${x.id}" aria-label="Quitar ${esc(x.name)}">✕</button></div>
-        <div class="exmq">${mqOf(x) && mqOf(x).img ? `<img src="${esc(mqOf(x).img)}" alt="" loading="lazy">` : ''}${mqSelect('wo_m_' + x.id, x.mq, dayG, '<option value="">Sin máquina</option>')}</div>`).join('')}
-      <label for="woMq">Añadir una máquina</label>
-      ${mqSelect('woMq', '', dayG, '<option value="">Elige una máquina…</option>')}
+        <div class="exmq">${mqOf(x) && mqOf(x).img ? `<img src="${esc(mqOf(x).img)}" alt="" loading="lazy">` : ''}${mqSelect('wo_m_' + x.id, x.mq, grp, '<option value="">Sin máquina</option>')}</div>`).join('')}
+      <p class="lbl">¿Qué vas a trabajar?</p>
+      ${mqGroupChips(grp, dayDef)}
+      <label for="woMq">Añadir una máquina${grp ? ` de ${grp.toLowerCase()}` : ''}</label>
+      ${grp ? mqSelect('woMq', '', grp, '<option value="">Elige una máquina…</option>') : '<p class="mut" style="margin:0">Elige primero qué vas a trabajar.</p>'}
       <label for="woNew">O escribe un ejercicio sin máquina</label>
       <div class="row"><input id="woNew" type="text" autocomplete="off" placeholder="Ej.: Press francés con mancuernas" style="flex:1"><button class="btn" data-act="woAdd">Añadir</button></div>
       ${copyBtns}
@@ -832,9 +852,9 @@ function viewEntreno() {
       return `<div class="exhist">${best ? `<p style="margin:0 0 6px;font-size:13px"><b>Mejor marca:</b> ${L.fmtSet(best.e)} <span class="mut">(${fdate(best.key)})</span></p>` : ''}
         ${all.length ? all.slice(0, 8).map((h) => `<div class="row between hrow"><span class="mut">${fdate(h.key)}</span><span>${L.fmtSet(h.e)}</span></div>`).join('') : '<p class="mut" style="margin:0">Aún no hay sesiones.</p>'}</div>`;
     })() : '';
-    // Filas de series: lo escrito sin guardar; si no, lo de hoy o lo de la última vez; si no, 3 series de 10.
+    // Filas de series: lo escrito sin guardar; si no, lo de hoy o lo de la última vez; si no, 3 series de 12.
     const noKg = m && m.carga === 'sin carga';
-    const rows = woRows[x.id] || (base ? L.setRows(base).map((y) => ({ r: String(y.r), kg: kgTxt(y.kg) })) : [1, 2, 3].map(() => ({ r: '10', kg: '' })));
+    const rows = woRows[x.id] || (base ? L.setRows(base).map((y) => ({ r: String(y.r), kg: kgTxt(y.kg) })) : [1, 2, 3].map(() => ({ r: '12', kg: '' })));
     woShown[x.id] = rows.length;
     const srows = rows.map((y, i) => `<div class="srow${noKg ? ' nokg' : ''}"><span class="mut">${i + 1}.ª</span>
         <input id="wo_r_${x.id}_${i}" type="text" inputmode="numeric" autocomplete="off" value="${esc(y.r)}" aria-label="Repeticiones de la serie ${i + 1}">
