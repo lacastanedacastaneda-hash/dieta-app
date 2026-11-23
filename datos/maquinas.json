@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "maquinas": [
     {"id":"mcc-25-press-horizontal","nombre":"Press de banca plano en máquina (press horizontal)","marca":"MC Fitmaker","modelo":"MCC-25","cat":"pecho","principal":"pectoral medio","secundarios":["deltoides anterior","tríceps"],"carga":"discos","img":"img/maquinas/mcc-25-press-horizontal.jpg"},
     {"id":"mcc-06-press-inclinado","nombre":"Press inclinado en máquina","marca":"MC Fitmaker","modelo":"MCC-06","cat":"pecho","principal":"pectoral superior","secundarios":["deltoides anterior","tríceps"],"carga":"discos","img":"img/maquinas/mcc-06-press-inclinado.jpg"},
@@ -45,6 +45,7 @@
     {"id":"bh-l825bb-banco-multiposicion-l825","nombre":"Banco multiposición","marca":"BH Fitness","modelo":"L825BB","cat":"banco","principal":null,"secundarios":[],"carga":"peso libre","img":"img/maquinas/bh-l825bb-banco-multiposicion-l825.png"},
     {"id":"bh-l800bb-banco-abdominal-l800","nombre":"Banco abdominal flexor","marca":"BH Fitness","modelo":"L800BB","cat":"abdomen","principal":null,"secundarios":[],"carga":"sin carga","img":"img/maquinas/bh-l800bb-banco-abdominal-l800.png"},
     {"id":"bh-l835bb-banco-abdominales-l835","nombre":"Banco de abdominales crunch","marca":"BH Fitness","modelo":"L835BB","cat":"abdomen","principal":null,"secundarios":[],"carga":"sin carga","img":"img/maquinas/bh-l835bb-banco-abdominales-l835.png"},
-    {"id":"bh-l480x2-multiestacion-8-puestos","nombre":"Multiestación de 8 puestos","marca":"BH Fitness","modelo":"L480x2","cat":"multiestación","principal":"multiarticular","secundarios":["glúteos","pectoral","deltoides","tríceps","bíceps","dorsal","trapecio","lumbares","abdominales"],"carga":"selectorizada","img":"img/maquinas/bh-l480x2-multiestacion-8-puestos.png"}
+    {"id":"bh-l480x2-multiestacion-8-puestos","nombre":"Multiestación de 8 puestos","marca":"BH Fitness","modelo":"L480x2","cat":"multiestación","principal":"multiarticular","secundarios":["glúteos","pectoral","deltoides","tríceps","bíceps","dorsal","trapecio","lumbares","abdominales"],"carga":"selectorizada","img":"img/maquinas/bh-l480x2-multiestacion-8-puestos.png"},
+    {"id":"bh-l410b-deltoides-posterior-contractor-pectoral","nombre":"Deltoides posterior / contractor pectoral (peck deck)","marca":"BH Fitness","modelo":"L410B","cat":"hombro","principal":"deltoides posterior","secundarios":["pectoral"],"carga":"selectorizada"}
   ]
 }
