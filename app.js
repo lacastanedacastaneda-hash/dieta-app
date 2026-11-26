@@ -501,8 +501,13 @@ document.addEventListener('change', async (ev) => {
     if (m) { const w = wo(), dow = L.parse(woKey()).getDay(); (w.ex[dow] = w.ex[dow] || []).push({ id: woId(), name: m.nombre.slice(0, 60), mq: m.id }); save(); render(); }
   } else if (ev.target.id.startsWith('wo_m_')) { // cambiar la máquina de un ejercicio (en todos los días que lo tengan)
     const id = ev.target.id.slice(5), mq = ev.target.value;
-    for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) { if (mq) x.mq = mq; else delete x.mq; }
-    save();
+    for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) { if (mq) x.mq = mq; else delete x.mq; delete x.ej; }
+    save(); render();
+  } else if (ev.target.id.startsWith('wo_e_')) { // elegir el ejercicio en una máquina de varios (en todos los días que lo tengan)
+    const id = ev.target.id.slice(5), x0 = woFind(id), m = mqOf(x0), ej = m && (m.ejercicios || []).find((y) => y.id === ev.target.value);
+    for (const list of Object.values(wo().ex)) for (const x of list) if (x.id === id) { if (ej) { x.ej = ej.id; x.name = ej.n.slice(0, 60); } else x.ej = ''; }
+    save(); render();
+    if (!ej) { const inp = $('#wo_n_' + id); if (inp) { inp.select(); inp.focus(); } }
   } else if (/^wo_[rk]_/.test(ev.target.id)) { // una serie: se recuerda lo escrito y, si ya estaba hecho, se corrige
     const x = woFind(ev.target.id.slice(5).split('_')[0]);
     if (x) { woRows[x.id] = woRaw(x); woSaveDone(x); }
@@ -819,6 +824,14 @@ function loadMq() {
   return mqP;
 }
 const mqOf = (x) => (x && x.mq && mqData ? mqData.by[x.mq] || null : null);
+// Máquinas de varios ejercicios (poleas, racks, bancos…): el ejercicio elegido (`ej`) o null.
+const ejOf = (x) => { const m = mqOf(x); return m && m.ejercicios && x.ej ? m.ejercicios.find((y) => y.id === x.ej) || null : null; };
+// Desplegable «¿Qué ejercicio?» para una máquina de varios ejercicios; «Otro» deja escribir el nombre.
+function ejSelect(x) {
+  const m = mqOf(x); if (!m || !m.ejercicios) return '';
+  return `<select id="wo_e_${x.id}" aria-label="Ejercicio en ${esc(m.nombre)}"><option value="" ${x.ej ? '' : 'selected'}>${x.ej === undefined && x.name === m.nombre.slice(0, 60) ? '¿Qué ejercicio haces?' : 'Otro (escribe el nombre arriba)'}</option>
+    ${m.ejercicios.map((y) => `<option value="${esc(y.id)}" ${y.id === x.ej ? 'selected' : ''}>${esc(y.n)}</option>`).join('')}</select>`;
+}
 const MQLOAD = { discos: 'Kg: solo los discos que pones, sin contar la máquina.', selectorizada: 'Kg: el número de la pila de placas.' };
 // «¿Qué vas a trabajar?»: grupos para elegir máquina, según la categoría de cada máquina (datos/maquinas.json).
 const MQGROUPS = ['Pecho', 'Espalda', 'Hombro', 'Brazos', 'Pierna', 'Glúteos', 'Cardio', 'Otros'];
@@ -863,7 +876,7 @@ function viewEntreno() {
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="-1" aria-label="Subir" ${i ? '' : 'disabled'}>↑</button>
         <button class="btn sq" data-act="woMove" data-id="${x.id}" data-d="1" aria-label="Bajar" ${i < list.length - 1 ? '' : 'disabled'}>↓</button>
         <button class="btn sq" data-act="woDel" data-id="${x.id}" aria-label="Quitar ${esc(x.name)}">✕</button></div>
-        <div class="exmq">${mqOf(x) && mqOf(x).img ? `<img src="${esc(mqOf(x).img)}" alt="" loading="lazy">` : ''}${mqSelect('wo_m_' + x.id, x.mq, grp, '<option value="">Sin máquina</option>')}</div>`).join('')}
+        <div class="exmq">${mqOf(x) && mqOf(x).img ? `<img src="${esc(mqOf(x).img)}" alt="" loading="lazy">` : ''}${mqSelect('wo_m_' + x.id, x.mq, grp, '<option value="">Sin máquina</option>')}</div>${ejSelect(x)}`).join('')}
       <p class="lbl">¿Qué vas a trabajar?</p>
       ${mqGroupChips(grp, dayDef)}
       <label for="woMq">Añadir una máquina${grp ? ` de ${grp.toLowerCase()}` : ''}</label>
@@ -878,8 +891,8 @@ function viewEntreno() {
       ${copyBtns}<button class="btn primary big" data-act="woEdit">Añadir ejercicios</button></section>`;
   }
   const cards = list.map((x) => {
-    const e = dayLog[x.id], last = L.exHistory(w.log, x.id, k)[0], base = e || (last && last.e), m = mqOf(x);
-    const musc = m && m.principal ? `${cap(m.principal)}${m.secundarios.length ? `; también ${m.secundarios.join(', ')}` : ''}` : '';
+    const e = dayLog[x.id], last = L.exHistory(w.log, x.id, k)[0], base = e || (last && last.e), m = mqOf(x), ej = ejOf(x);
+    const musc = ej ? `${cap(ej.p)}${ej.s.length ? `; también ${ej.s.join(', ')}` : ''}` : m && m.ejercicios ? '' : m && m.principal ? `${cap(m.principal)}${m.secundarios.length ? `; también ${m.secundarios.join(', ')}` : ''}` : '';
     const hist = woOpen === x.id ? (() => {
       const all = L.exHistory(w.log, x.id), best = L.exBest(w.log, x.id);
       return `<div class="exhist">${best ? `<p style="margin:0 0 6px;font-size:13px"><b>Mejor marca:</b> ${L.fmtSet(best.e)} <span class="mut">(${fdate(best.key)})</span></p>` : ''}
@@ -897,6 +910,7 @@ function viewEntreno() {
       ${m && m.img ? `<div class="exphoto"><img src="${esc(m.img)}" alt="${esc(m.nombre)}" loading="lazy"></div>` : ''}
       <div class="row between"><b>${esc(x.name)}</b>${e ? '<span class="ok">✓ Hecho</span>' : ''}</div>
       ${m ? `<p class="mut" style="margin:2px 0 0">${esc(m.marca)} ${esc(m.modelo || '')}${musc ? ` · ${esc(musc)}` : ''}</p>` : ''}
+      ${m && m.ejercicios && x.ej === undefined ? `<div style="margin-top:6px">${ejSelect(x)}</div>` : ''}
       <p class="mut" style="margin:2px 0 0">${last ? `Última vez (${fdate(last.key)}): ${L.fmtSet(last.e)}` : 'Primera vez: escribe lo que haces.'}</p>
       <div class="srow${noKg ? ' nokg' : ''} shead"><span></span><span>Repeticiones</span>${noKg ? '' : '<span>Kg</span>'}<span></span></div>
       ${srows}

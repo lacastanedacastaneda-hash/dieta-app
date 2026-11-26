@@ -142,7 +142,9 @@
       const day = ((w && w.log) || {})[iso(addDays(ws, i))] || {};
       for (const [id, e] of Object.entries(day)) {
         const x = byId[id], m = x && x.mq && mq ? mq[x.mq] : null;
-        const g = exGroup(x ? x.name : e.n, m) || 'Otros';
+        // En máquinas de varios ejercicios (poleas, racks…) manda el ejercicio elegido, no la máquina.
+        const ej = m && x.ej ? (m.ejercicios || []).find((y) => y.id === x.ej) : null;
+        const g = exGroup(x ? x.name : e.n, ej ? { principal: ej.p } : m && m.ejercicios ? null : m) || 'Otros';
         acc[g] = acc[g] || { g, n: 0, s: 0 };
         acc[g].n++; acc[g].s += e.s || 0;
       }
